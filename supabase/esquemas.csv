@@ -1,0 +1,101 @@
+table_name,column_name,data_type,is_nullable,column_default
+calificaciones,id,integer,NO,nextval('calificaciones_id_seq'::regclass)
+calificaciones,cita_id,uuid,YES,null
+calificaciones,usuario_id,uuid,YES,null
+calificaciones,profesional_id,integer,YES,null
+calificaciones,servicio_id,integer,YES,null
+calificaciones,nota_profesional,integer,YES,null
+calificaciones,nota_servicio,integer,YES,null
+calificaciones,comentario,text,YES,null
+calificaciones,estado,text,YES,'pendiente'::text
+calificaciones,fecha,timestamp with time zone,YES,now()
+citas,id,uuid,NO,gen_random_uuid()
+citas,usuario_id,uuid,YES,null
+citas,servicio_id,integer,YES,null
+citas,profesional_id,integer,YES,null
+citas,lugar_id,integer,YES,null
+citas,modalidad_id,integer,YES,null
+citas,fecha,date,NO,null
+citas,hora,time without time zone,NO,null
+citas,duracion_minutos,integer,NO,null
+citas,precio_total,integer,NO,null
+citas,moneda,text,YES,null
+citas,monto_abonado,integer,YES,0
+citas,saldo_pendiente,integer,NO,null
+citas,estado,text,YES,'pendiente_pago'::text
+citas,observaciones,text,YES,null
+citas,fecha_creacion,timestamp with time zone,YES,now()
+clases,id,integer,NO,nextval('clases_id_seq'::regclass)
+clases,modulo_id,integer,YES,null
+clases,titulo,text,NO,null
+clases,descripcion,text,YES,null
+clases,texto_formativo,text,YES,null
+clases,video_url,text,YES,null
+clases,duracion_segundos,integer,YES,0
+clases,orden,integer,YES,0
+clases,estado,text,YES,'activo'::text
+compras_digitales,id,integer,NO,nextval('compras_digitales_id_seq'::regclass)
+compras_digitales,usuario_id,uuid,YES,null
+compras_digitales,producto_id,integer,YES,null
+compras_digitales,pago_id,uuid,YES,null
+compras_digitales,fecha,timestamp with time zone,YES,now()
+cursos,id,integer,NO,nextval('cursos_id_seq'::regclass)
+cursos,nombre,text,NO,null
+cursos,slug,text,NO,null
+cursos,imagen,text,YES,null
+cursos,descripcion,text,YES,null
+cursos,precio,integer,NO,null
+cursos,moneda,text,YES,null
+cursos,fecha_inicio,date,YES,null
+cursos,fecha_fin,date,YES,null
+cursos,estado,text,YES,'borrador'::text
+enlaces_descarga,id,uuid,NO,gen_random_uuid()
+enlaces_descarga,compra_id,integer,YES,null
+enlaces_descarga,token,text,NO,null
+enlaces_descarga,vencimiento,timestamp with time zone,NO,null
+enlaces_descarga,descargas_max,integer,YES,3
+enlaces_descarga,descargas_realizadas,integer,YES,0
+evaluaciones,id,integer,NO,nextval('evaluaciones_id_seq'::regclass)
+evaluaciones,curso_id,integer,YES,null
+evaluaciones,modulo_id,integer,YES,null
+evaluaciones,tipo,text,YES,null
+evaluaciones,tiempo_limite_minutos,integer,YES,null
+evaluaciones,nota_minima,integer,NO,70
+evaluaciones,intentos_max,integer,YES,3
+excepciones_horario,id,integer,NO,nextval('excepciones_horario_id_seq'::regclass)
+excepciones_horario,profesional_id,integer,YES,null
+excepciones_horario,fecha,date,NO,null
+excepciones_horario,tipo,text,YES,null
+excepciones_horario,hora_inicio,time without time zone,YES,null
+excepciones_horario,hora_fin,time without time zone,YES,null
+horarios,id,integer,NO,nextval('horarios_id_seq'::regclass)
+horarios,profesional_id,integer,YES,null
+horarios,dia_semana,integer,YES,null
+horarios,hora_inicio,time without time zone,NO,null
+horarios,hora_fin,time without time zone,NO,null
+horarios,lugar_id,integer,YES,null
+horarios,modalidad_id,integer,YES,null
+inscripciones,id,integer,NO,nextval('inscripciones_id_seq'::regclass)
+inscripciones,usuario_id,uuid,YES,null
+inscripciones,curso_id,integer,YES,null
+inscripciones,tipo_acceso,text,YES,null
+inscripciones,estado,text,YES,'activa'::text
+inscripciones,fecha_inicio,timestamp with time zone,YES,now()
+inscripciones,fecha_fin,timestamp with time zone,YES,null
+intentos_evaluacion,id,integer,NO,nextval('intentos_evaluacion_id_seq'::regclass)
+intentos_evaluacion,evaluacion_id,integer,YES,null
+intentos_evaluacion,usuario_id,uuid,YES,null
+intentos_evaluacion,nota,integer,NO,null
+intentos_evaluacion,aprobado,boolean,YES,false
+intentos_evaluacion,fecha,timestamp with time zone,YES,now()
+lugares,id,integer,NO,nextval('lugares_id_seq'::regclass)
+lugares,nombre,text,NO,null
+lugares,direccion,text,YES,null
+lugares,ciudad,text,YES,null
+lugares,mapa_url,text,YES,null
+lugares,contacto,text,YES,null
+lugares,estado,text,YES,'activo'::text
+modalidades,id,integer,NO,nextval('modalidades_id_seq'::regclass)
+modalidades,nombre,text,NO,null
+modulos,id,integer,NO,nextval('modulos_id_seq'::regclass)
+modulos,curso_id,integer,YES,null
