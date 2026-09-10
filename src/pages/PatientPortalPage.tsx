@@ -5,6 +5,7 @@ import {
   Wallet, Search, CheckCircle2, ArrowLeft, Video, GraduationCap,
 } from 'lucide-react';
 import PortalLayout, { type PortalNavItem } from '@/components/site/PortalLayout';
+import PaymentCheckoutModal from '@/components/site/PaymentCheckoutModal';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useMyAppointments, useMyPurchases } from '@/hooks/useSupabaseData';
@@ -76,6 +77,7 @@ export default function PatientPortalPage() {
   const t = text[language];
   const [tab, setTab] = useState<Tab>('dash');
   const [citaSeleccionada, setCitaSeleccionada] = useState<CitaPaciente | null>(null);
+  const [paymentModalData, setPaymentModalData] = useState<{ isOpen: boolean; monto: number; concepto: string } | null>(null);
 
   // Datos reales: citas (DB + wizard demo), pagos, notificaciones.
   // Mientras no haya sesión real, se muestran los datos demo.
@@ -213,7 +215,7 @@ export default function PatientPortalPage() {
                 <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm">
                   <p className="mb-1 flex items-center gap-1.5 font-semibold text-amber-700">⚠️ {t.saldoPendiente}</p>
                   <p className="mb-3 text-xs text-ink/60">{t.tienesSaldo} <b className="text-ink">USD ${saldoTotal}</b>.</p>
-                  <button onClick={() => setTab('pagos')} className="rounded-full bg-brand-gradient px-4 py-2 text-xs font-bold text-white">{t.pagarAhora}</button>
+                  <button onClick={() => setPaymentModalData({ isOpen: true, monto: saldoTotal, concepto: language === 'es' ? 'Saldo pendiente total' : 'Total balance due' })} className="rounded-full bg-brand-gradient px-4 py-2 text-xs font-bold text-white">{t.pagarAhora}</button>
                 </div>
               )}
             </div>
@@ -289,9 +291,15 @@ export default function PatientPortalPage() {
                 <div className="flex justify-between"><dt className="text-ink/50">{t.saldo}</dt><dd className="font-semibold text-amber-600">USD ${citaSeleccionada.total - citaSeleccionada.pagado}</dd></div>
               </dl>
               {citaSeleccionada.total > citaSeleccionada.pagado ? (
-                <button onClick={() => setTab('pagos')} className="mt-4 block w-full rounded-full bg-brand-gradient py-2.5 text-center text-sm font-bold text-white shadow-soft">
-                  {t.pagarSaldo} USD ${citaSeleccionada.total - citaSeleccionada.pagado}
-                </button>
+                <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                  <span>{t.pagarSaldo} USD ${citaSeleccionada.total - citaSeleccionada.pagado}</span>
+                  <button 
+                    onClick={() => setPaymentModalData({ isOpen: true, monto: citaSeleccionada.total - citaSeleccionada.pagado, concepto: `${language === 'es' ? 'Pago de saldo de cita' : 'Appointment balance payment'} ${citaSeleccionada.fecha}` })} 
+                    className="rounded-full bg-amber-600 px-3 py-1.5 text-xs text-white hover:bg-amber-700 transition"
+                  >
+                    {t.pagarAhora}
+                  </button>
+                </div>
               ) : (
                 <p className="mt-4 flex items-center gap-1.5 text-sm font-semibold text-emerald-600"><CheckCircle2 size={16} /> {t.pagado}</p>
               )}
@@ -331,10 +339,18 @@ export default function PatientPortalPage() {
                   <span className="text-ink/50 sm:col-span-2">{p.fecha}</span>
                   <span className="text-ink sm:col-span-2">USD ${p.monto}</span>
                   <span className="text-ink/50 sm:col-span-2">{p.metodo[language]}</span>
-                  <span className="sm:col-span-2">
+                  <span className="sm:col-span-2 flex items-center justify-between gap-2">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${pagoEstadoEstilo[p.estado]}`}>
                       {p.estado === 'pagado' ? t.estadoPagado : p.estado === 'pendiente' ? t.estadoPendiente : p.estado === 'revision' ? t.estadoRevision : t.estadoRechazado}
                     </span>
+                    {(p.estado === 'pendiente' || p.estado === 'rechazado') && (
+                      <button 
+                        onClick={() => setPaymentModalData({ isOpen: true, monto: p.monto, concepto: p.concepto[language] })}
+                        className="rounded bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-700 hover:bg-amber-200"
+                      >
+                        {t.pagarAhora}
+                      </button>
+                    )}
                   </span>
                 </div>
               ))}
@@ -363,6 +379,19 @@ export default function PatientPortalPage() {
             ))}
           </div>
         </>
+      )}
+
+      {/* Payment Modal */}
+      {paymentModalData?.isOpen && (
+        <PaymentCheckoutModal
+          monto={paymentModalData.monto}
+          concepto={paymentModalData.concepto}
+          onClose={() => setPaymentModalData(null)}
+          onSuccess={() => {
+            setPaymentModalData(null);
+            // Here we would typically refresh data, for now just close the modal
+          }}
+        />
       )}
     </PortalLayout>
   );
