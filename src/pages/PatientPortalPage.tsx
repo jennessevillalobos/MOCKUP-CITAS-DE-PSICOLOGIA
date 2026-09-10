@@ -10,6 +10,7 @@ import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useMyAppointments, useMyPurchases } from '@/hooks/useSupabaseData';
 import { CITAS_PACIENTE, NOTIFICACIONES_PACIENTE, type CitaPaciente } from '@/data/patientPortalData';
+import { cancelarCita } from '@/lib/api/appointments';
 
 
 
@@ -29,6 +30,7 @@ const text = {
     volver: 'Volver a mis citas', fechaYHora: 'Fecha y hora', profesional: 'Profesional', modalidad: 'Modalidad / Lugar', duracion: 'Duración',
     salaSesion: 'Sala de la sesión', enlaceInfo: 'El enlace se activa 10 min antes.', unirmeSesion: 'Unirme a la sesión',
     estadoPago: 'Estado de pago', total: 'Total', abonado: 'Abonado', saldo: 'Saldo pendiente', pagado: 'Pagada',
+    cancelarCitaBtn: 'Cancelar cita', reprogramarBtn: 'Reprogramar', confirmCancelar: '¿Seguro que deseas cancelar esta cita?', cancelando: 'Cancelando...',
     misPagosTitle: 'Mis pagos', misPagosSub: 'Historial de órdenes, abonos y comprobantes.',
     totalPagado: 'Total pagado', pendiente: 'Pendiente', enRevision: 'En revisión',
     concepto: 'Concepto', fecha: 'Fecha', monto: 'Monto', metodo: 'Método', estado: 'Estado',
@@ -47,6 +49,7 @@ const text = {
     volver: 'Back to appointments', fechaYHora: 'Date & time', profesional: 'Therapist', modalidad: 'Mode / Location', duracion: 'Duration',
     salaSesion: 'Session room', enlaceInfo: 'Link opens 10 min before.', unirmeSesion: 'Join session',
     estadoPago: 'Payment status', total: 'Total', abonado: 'Paid', saldo: 'Balance due', pagado: 'Paid',
+    cancelarCitaBtn: 'Cancel appointment', reprogramarBtn: 'Reschedule', confirmCancelar: 'Are you sure you want to cancel this appointment?', cancelando: 'Canceling...',
     misPagosTitle: 'My payments', misPagosSub: 'History of orders, payments and receipts.',
     totalPagado: 'Total paid', pendiente: 'Pending', enRevision: 'Under review',
     concepto: 'Concept', fecha: 'Date', monto: 'Amount', metodo: 'Method', estado: 'Status',
@@ -78,10 +81,11 @@ export default function PatientPortalPage() {
   const [tab, setTab] = useState<Tab>('dash');
   const [citaSeleccionada, setCitaSeleccionada] = useState<CitaPaciente | null>(null);
   const [paymentModalData, setPaymentModalData] = useState<{ isOpen: boolean; monto: number; concepto: string } | null>(null);
+  const [isCanceling, setIsCanceling] = useState(false);
 
   // Datos reales: citas (DB + wizard demo), pagos, notificaciones.
   // Mientras no haya sesión real, se muestran los datos demo.
-  const { data: citasOrigen } = useMyAppointments();
+  const { data: citasOrigen, refresh: refreshCitas } = useMyAppointments();
   const { dbCompras, demoPagos } = useMyPurchases();
 
   // Combinar citas: primero las reales (DB), luego las del wizard demo, luego los datos demo
@@ -105,6 +109,24 @@ export default function PatientPortalPage() {
       });
     return [...reales, ...demoPagos];
   }, [dbCompras, demoPagos]);
+
+  const handleCancelar = async (citaId: string) => {
+    if (!window.confirm(t.confirmCancelar)) return;
+    if (!isRealAuth) {
+      alert('En modo demo solo es visual. En producción se cancelará la cita en la base de datos.');
+      setCitaSeleccionada(prev => prev ? { ...prev, estado: 'cancelada' } : null);
+      return;
+    }
+    setIsCanceling(true);
+    const res = await cancelarCita(citaId);
+    setIsCanceling(false);
+    if (res.ok) {
+      await refreshCitas();
+      setTab('citas');
+    } else {
+      alert(res.error?.message || 'Error al cancelar la cita');
+    }
+  };
 
   const navItems: PortalNavItem[] = [
     { key: 'dash', label: { es: 'Dashboard', en: 'Dashboard' }, icon: LayoutDashboard, disponible: true },
@@ -282,6 +304,17 @@ export default function PatientPortalPage() {
                   {t.unirmeSesion}
                 </button>
               </div>
+
+              {(citaSeleccionada.estado === 'confirmada' || citaSeleccionada.estado === 'agendada') && (
+                <div className="mt-8 flex flex-wrap gap-3 border-t border-brand-100 pt-6">
+                  <button onClick={() => navigate('/agendar')} className="rounded-full border border-brand-200 px-5 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition">
+                    {t.reprogramarBtn}
+                  </button>
+                  <button onClick={() => handleCancelar(citaSeleccionada.id)} disabled={isCanceling} className="rounded-full border border-rose-200 px-5 py-2 text-sm font-semibold text-rose-500 hover:bg-rose-50 transition disabled:opacity-50">
+                    {isCanceling ? t.cancelando : t.cancelarCitaBtn}
+                  </button>
+                </div>
+              )}
             </div>
             <aside className="rounded-3xl border border-brand-100 bg-white p-6 shadow-soft">
               <h2 className="mb-4 font-display text-lg font-semibold text-ink">{t.estadoPago}</h2>

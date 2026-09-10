@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import {
-  ArrowLeft, Play, Search, Lock, ShieldCheck, ChevronLeft, ChevronRight, Minus, Plus, Bookmark,
+  ArrowLeft, Play, Search, Lock, ShieldCheck, ChevronLeft, ChevronRight, Minus, Plus, Bookmark, Loader2
 } from 'lucide-react';
 import PortalLayout from '@/components/site/PortalLayout';
 import { AULA_NAV_LABELS, buildAulaVirtualNav } from '@/components/site/aulaVirtualNav';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { VIDEOS_COMPRADOS, LIBROS_COMPRADOS } from '@/data/libraryData';
+import { createDownloadLink } from '@/lib/api/edgeFunctions';
 
 type Vista = 'lista' | 'video' | 'libro';
 type Tab = 'videos' | 'libros';
@@ -41,7 +42,7 @@ const text = {
 } as const;
 
 export default function LibraryPage() {
-  const { user } = useSiteAuth();
+  const { user, isRealAuth } = useSiteAuth();
   const { language } = useSiteLanguage();
   const t = text[language];
 
@@ -50,8 +51,27 @@ export default function LibraryPage() {
   const [busqueda, setBusqueda] = useState('');
   const [videoKey, setVideoKey] = useState<string | null>(null);
   const [libroKey, setLibroKey] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const navItems = buildAulaVirtualNav(AULA_NAV_LABELS[language], ['videos', 'libros']);
+
+  const handleDownload = async (ordenId: string) => {
+    if (!isRealAuth) {
+      alert(language === 'es' ? 'El comprobante real solo está disponible para compras con sesión activa.' : 'Real receipt is only available for purchases with active session.');
+      return;
+    }
+    setIsDownloading(true);
+    // In a real scenario, ordenId should be the numeric ID from the database
+    // For this mockup, if we are in real auth, we pass the mock orden ID
+    // which will likely return an error from the backend.
+    const res = await createDownloadLink(ordenId);
+    setIsDownloading(false);
+    if (res.ok && res.data?.download_url) {
+      window.open(res.data.download_url, '_blank');
+    } else {
+      alert(res.error?.message || 'Error al obtener el comprobante.');
+    }
+  };
 
   function onNavigate(key: string) {
     if (key === 'videos' || key === 'libros') {
@@ -206,7 +226,13 @@ export default function LibraryPage() {
                 <div className="flex justify-between"><dt className="text-ink/45">{t.metodo}</dt><dd className="text-ink">{video.compra.metodo}</dd></div>
                 <div className="flex justify-between"><dt className="text-ink/45">{t.acceso}</dt><dd className="font-semibold text-emerald-600">{t.deVida}</dd></div>
               </dl>
-              <a href="#" className="mt-4 block text-center text-xs text-brand-600 hover:underline">{t.descargarComprobante}</a>
+              <button 
+                onClick={() => handleDownload(video.compra.orden)}
+                disabled={isDownloading}
+                className="mt-4 flex w-full justify-center text-xs text-brand-600 hover:underline disabled:opacity-50"
+              >
+                {isDownloading ? <Loader2 size={14} className="animate-spin" /> : t.descargarComprobante}
+              </button>
             </aside>
           </div>
         </>
@@ -261,7 +287,13 @@ export default function LibraryPage() {
               <button className="mt-4 flex w-full cursor-not-allowed items-center justify-center gap-1.5 rounded-full border border-brand-200 py-2.5 text-sm font-semibold text-ink/40" title={t.descargaBloqueada}>
                 <Lock size={14} /> {t.descargaBloqueada}
               </button>
-              <a href="#" className="mt-3 block text-center text-xs text-brand-600 hover:underline">{t.descargarComprobante}</a>
+              <button 
+                onClick={() => handleDownload(libro.compra.orden)}
+                disabled={isDownloading}
+                className="mt-3 flex w-full justify-center text-xs text-brand-600 hover:underline disabled:opacity-50"
+              >
+                {isDownloading ? <Loader2 size={14} className="animate-spin" /> : t.descargarComprobante}
+              </button>
             </aside>
           </div>
         </>

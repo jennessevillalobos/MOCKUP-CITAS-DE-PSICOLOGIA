@@ -4,6 +4,7 @@ import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { getSupabaseClient } from '@/lib/supabase/client';
 import { createStripeSession, createPaypalOrder } from '@/lib/api/edgeFunctions';
+import { uploadToCloudinary, CLOUDINARY_CONFIGURED } from '@/lib/integrations/cloudinary';
 
 interface PaymentCheckoutModalProps {
   monto: number;
@@ -22,7 +23,7 @@ const text = {
     card: 'Datos de la tarjeta', cardNumber: 'Número de tarjeta', cardName: 'Nombre en la tarjeta', expiry: 'MM/AA', cvv: 'CVV',
     transferInfo: 'Datos bancarios',
     bank: 'Banco', accountInfo: 'Cuenta corriente a nombre de Clínica PsiqueAmor', accountNum: '0102-0304-0506-0708',
-    uploadReceipt: 'Sube tu comprobante (PDF, JPG, PNG)', upload: 'Subir archivo',
+    uploadReceipt: 'Sube tu comprobante (PDF, JPG, PNG)', upload: 'Seleccionar archivo', uploadOk: 'Archivo seleccionado', uploadingMsg: 'Subiendo comprobante...',
     simulated: 'Pago protegido por SSL — procesado mediante pasarela segura.',
     pay: 'Pagar', reportPayment: 'Reportar pago', processing: 'Procesando...',
     successTitle: '¡Pago exitoso!', successSub: 'Tu pago ha sido registrado correctamente.',
@@ -36,7 +37,7 @@ const text = {
     card: 'Card details', cardNumber: 'Card number', cardName: 'Name on card', expiry: 'MM/YY', cvv: 'CVV',
     transferInfo: 'Bank details',
     bank: 'Bank', accountInfo: 'Checking account - PsiqueAmor Clinic', accountNum: '0102-0304-0506-0708',
-    uploadReceipt: 'Upload your receipt (PDF, JPG, PNG)', upload: 'Upload file',
+    uploadReceipt: 'Upload your receipt (PDF, JPG, PNG)', upload: 'Select file', uploadOk: 'File selected', uploadingMsg: 'Uploading receipt...',
     simulated: 'SSL Secured Payment — processed via secure gateway.',
     pay: 'Pay', reportPayment: 'Report payment', processing: 'Processing...',
     successTitle: 'Payment successful!', successSub: 'Your payment has been registered correctly.',
@@ -54,6 +55,8 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Prevent background scrolling
   useEffect(() => {
@@ -120,9 +123,20 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
                 return;
               }
             } else if (method === 'transfer') {
+              // Subir comprobante a Cloudinary si hay archivo seleccionado
+              let comprobanteUrl = 'comprobante_pendiente';
+              if (receiptFile && CLOUDINARY_CONFIGURED) {
+                setIsUploading(true);
+                const url = await uploadToCloudinary(receiptFile);
+                setIsUploading(false);
+                if (url) comprobanteUrl = url;
+              } else if (receiptFile) {
+                // Cloudinary no configurado: guardar nombre como referencia
+                comprobanteUrl = `local:${receiptFile.name}`;
+              }
               await supabase
                 .from('ordenes')
-                .update({ estado: 'en_revision', comprobante_url: 'comprobante_registrado.pdf' })
+                .update({ estado: 'en_revision', comprobante_url: comprobanteUrl })
                 .eq('id', currentOrdenId);
             }
           }
@@ -258,12 +272,24 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
                     </div>
                     
                     <div>
-                      <span className="mb-1 block text-xs font-bold text-ink/70">{t.uploadReceipt}</span>
-                      <button type="button" className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-brand-200 bg-white text-sm font-bold text-brand-700 hover:bg-brand-50">
-                        <UploadCloud size={16} />
-                        {t.upload}
-                      </button>
-                    </div>
+                       <span className="mb-1 block text-xs font-bold text-ink/70">{t.uploadReceipt}</span>
+                       <label className="flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-brand-200 bg-white text-sm font-bold text-brand-700 hover:bg-brand-50 transition">
+                         <UploadCloud size={16} />
+                         {receiptFile ? receiptFile.name : t.upload}
+                         <input
+                           type="file"
+                           accept="image/*,application/pdf"
+                           className="sr-only"
+                           onChange={(e) => setReceiptFile(e.target.files?.[0] ?? null)}
+                         />
+                       </label>
+                       {receiptFile && (
+                         <p className="mt-1 text-[11px] text-emerald-600">✓ {t.uploadOk}</p>
+                       )}
+                       {isUploading && (
+                         <p className="mt-1 flex items-center gap-1 text-[11px] text-brand-600"><Loader2 size={11} className="animate-spin" /> {t.uploadingMsg}</p>
+                       )}
+                     </div>
                   </div>
                 )}
               </div>
