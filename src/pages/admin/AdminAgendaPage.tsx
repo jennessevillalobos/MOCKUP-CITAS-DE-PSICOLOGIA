@@ -94,9 +94,39 @@ export default function AdminAgendaPage() {
   const [seleccion, setSeleccion] = useState<CitaRecord | null>(null);
   const [edicion, setEdicion] = useState<{ fechaISO: string; hora: string } | null>(null);
 
+  // Declarar primero para que citaVacia pueda usarlas sin crash
   const profesionales = demoProfesionales.map((p) => p.nombre);
   const lugares = demoLugares.map((l) => l.nombre);
   const servicios = demoServicios.map((s) => s.nombre);
+
+  // ===== NUEVA CITA =====
+  const citaVacia = () => ({
+    paciente: '', correo: '', profesional: profesionales[0] ?? '',
+    servicio: servicios[0] ?? '', modalidad: 'Online' as 'Online' | 'Presencial',
+    lugar: '', fechaISO: AGENDA_HOY, hora: '09:00', duracionMin: 50,
+  });
+  const [modalNuevaCita, setModalNuevaCita] = useState(false);
+  const [formNueva, setFormNueva] = useState(citaVacia);
+  const [errorNueva, setErrorNueva] = useState('');
+
+  function abrirModalNuevaCita() {
+    setFormNueva(citaVacia());
+    setErrorNueva('');
+    setModalNuevaCita(true);
+  }
+
+  function crearCita() {
+    if (!formNueva.paciente.trim()) { setErrorNueva(lang === 'es' ? 'El nombre del paciente es requerido.' : 'Patient name is required.'); return; }
+    if (!formNueva.fechaISO) { setErrorNueva(lang === 'es' ? 'Selecciona una fecha.' : 'Select a date.'); return; }
+    const nueva: CitaRecord = {
+      id: `c${Date.now()}`,
+      ...formNueva,
+      estado: 'Programada',
+      lugar: formNueva.modalidad === 'Presencial' ? formNueva.lugar : undefined,
+    };
+    setCitas((prev) => [...prev, nueva]);
+    setModalNuevaCita(false);
+  }
 
   const filtradas = useMemo(
     () =>
@@ -183,7 +213,10 @@ export default function AdminAgendaPage() {
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
           <p className="mt-1 text-sm text-ink/50">{t.subtitle(filtradas.length)}</p>
         </div>
-        <button className="flex h-10 items-center gap-2 rounded-2xl bg-brand-gradient px-4 text-sm font-bold text-white shadow-soft">
+        <button
+          onClick={abrirModalNuevaCita}
+          className="flex h-10 items-center gap-2 rounded-2xl bg-brand-gradient px-4 text-sm font-bold text-white shadow-soft hover:opacity-90"
+        >
           <Plus size={16} />
           {t.newCita}
         </button>
@@ -496,6 +529,160 @@ export default function AdminAgendaPage() {
               >
                 <X size={13} />
                 {t.close}
+              </button>
+            </div>
+          </div>
+        </AdminModal>
+      )}
+
+      {/* ===== MODAL NUEVA CITA ===== */}
+      {modalNuevaCita && (
+        <AdminModal
+          title={lang === 'es' ? 'Nueva cita' : 'New appointment'}
+          onClose={() => setModalNuevaCita(false)}
+        >
+          <div className="space-y-4">
+            {/* Paciente */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">
+                  {lang === 'es' ? 'Paciente' : 'Patient'}
+                </label>
+                <input
+                  type="text"
+                  value={formNueva.paciente}
+                  onChange={(e) => setFormNueva((f) => ({ ...f, paciente: e.target.value }))}
+                  placeholder={lang === 'es' ? 'Nombre completo' : 'Full name'}
+                  className="h-9 w-full rounded-xl border border-brand-200 px-3 text-sm text-ink outline-none focus:border-brand-400"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">
+                  {lang === 'es' ? 'Correo' : 'Email'}
+                </label>
+                <input
+                  type="email"
+                  value={formNueva.correo}
+                  onChange={(e) => setFormNueva((f) => ({ ...f, correo: e.target.value }))}
+                  placeholder="email@ejemplo.com"
+                  className="h-9 w-full rounded-xl border border-brand-200 px-3 text-sm text-ink outline-none focus:border-brand-400"
+                />
+              </div>
+            </div>
+
+            {/* Profesional y Servicio */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">
+                  {lang === 'es' ? 'Profesional' : 'Professional'}
+                </label>
+                <select
+                  value={formNueva.profesional}
+                  onChange={(e) => setFormNueva((f) => ({ ...f, profesional: e.target.value }))}
+                  className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-sm text-ink outline-none"
+                >
+                  {profesionales.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">
+                  {lang === 'es' ? 'Servicio' : 'Service'}
+                </label>
+                <select
+                  value={formNueva.servicio}
+                  onChange={(e) => setFormNueva((f) => ({ ...f, servicio: e.target.value }))}
+                  className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-sm text-ink outline-none"
+                >
+                  {servicios.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Modalidad y Sede */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">
+                  {lang === 'es' ? 'Modalidad' : 'Modality'}
+                </label>
+                <select
+                  value={formNueva.modalidad}
+                  onChange={(e) => setFormNueva((f) => ({ ...f, modalidad: e.target.value as 'Online' | 'Presencial' }))}
+                  className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-sm text-ink outline-none"
+                >
+                  <option value="Online">Online</option>
+                  <option value="Presencial">{lang === 'es' ? 'Presencial' : 'In-person'}</option>
+                </select>
+              </div>
+              {formNueva.modalidad === 'Presencial' && (
+                <div>
+                  <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">
+                    {lang === 'es' ? 'Sede' : 'Location'}
+                  </label>
+                  <select
+                    value={formNueva.lugar}
+                    onChange={(e) => setFormNueva((f) => ({ ...f, lugar: e.target.value }))}
+                    className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-sm text-ink outline-none"
+                  >
+                    {lugares.map((l) => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Fecha, Hora y Duración */}
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">
+                  {lang === 'es' ? 'Fecha' : 'Date'}
+                </label>
+                <input
+                  type="date"
+                  value={formNueva.fechaISO}
+                  onChange={(e) => setFormNueva((f) => ({ ...f, fechaISO: e.target.value }))}
+                  className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-xs text-ink outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">
+                  {lang === 'es' ? 'Hora' : 'Time'}
+                </label>
+                <input
+                  type="time"
+                  value={formNueva.hora}
+                  onChange={(e) => setFormNueva((f) => ({ ...f, hora: e.target.value }))}
+                  className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-xs text-ink outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">
+                  {lang === 'es' ? 'Duración (min)' : 'Duration (min)'}
+                </label>
+                <input
+                  type="number"
+                  min={15}
+                  value={formNueva.duracionMin}
+                  onChange={(e) => setFormNueva((f) => ({ ...f, duracionMin: Number(e.target.value) }))}
+                  className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-xs text-ink outline-none"
+                />
+              </div>
+            </div>
+
+            {errorNueva && (
+              <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600">{errorNueva}</p>
+            )}
+
+            <div className="flex gap-2 border-t border-brand-100 pt-3">
+              <button
+                onClick={() => setModalNuevaCita(false)}
+                className="flex-1 rounded-xl border border-brand-100 py-2.5 text-sm font-bold text-ink/60 hover:bg-brand-50"
+              >
+                {lang === 'es' ? 'Cancelar' : 'Cancel'}
+              </button>
+              <button
+                onClick={crearCita}
+                className="flex-1 rounded-xl bg-brand-gradient py-2.5 text-sm font-bold text-white shadow-soft hover:opacity-90"
+              >
+                {lang === 'es' ? 'Crear cita' : 'Create appointment'}
               </button>
             </div>
           </div>

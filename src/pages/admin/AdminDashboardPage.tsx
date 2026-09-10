@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Plus, TrendingUp, TrendingDown, CalendarDays, ShoppingBag, Wallet, AlertTriangle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, TrendingUp, TrendingDown, CalendarDays, ShoppingBag, Wallet, AlertTriangle, GraduationCap, Users, ChevronDown } from 'lucide-react';
 import AdminLayout from '@/components/admin/AdminLayout';
 import {
   kpis,
@@ -14,11 +15,31 @@ import {
 const maxRevenue = 180;
 
 export default function AdminDashboardPage() {
+  const navigate = useNavigate();
   const [animar, setAnimar] = useState(false);
+  const [menuAbierto, setMenuAbierto] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const id = setTimeout(() => setAnimar(true), 80);
     return () => clearTimeout(id);
   }, []);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuAbierto(false);
+      }
+    }
+    if (menuAbierto) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [menuAbierto]);
+
+  const opcionesNuevo = [
+    { icon: CalendarDays, label: 'Nueva cita', ruta: '/admin/agenda' },
+    { icon: GraduationCap, label: 'Nuevo curso', ruta: '/admin/cursos' },
+    { icon: Users, label: 'Nuevo paciente', ruta: '/admin/usuarios' },
+  ];
 
   const totalPct = activityByChannel.reduce((acc, c) => acc + c.pct, 0);
   let acumulado = 0;
@@ -43,10 +64,31 @@ export default function AdminDashboardPage() {
             <option>Este trimestre</option>
             <option>Este año</option>
           </select>
-          <button className="flex h-10 items-center gap-2 rounded-2xl bg-brand-gradient px-4 text-sm font-bold text-white shadow-soft">
-            <Plus size={16} />
-            Nuevo
-          </button>
+          {/* Dropdown Nuevo */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuAbierto((v) => !v)}
+              className="flex h-10 items-center gap-2 rounded-2xl bg-brand-gradient px-4 text-sm font-bold text-white shadow-soft hover:opacity-90"
+            >
+              <Plus size={16} />
+              Nuevo
+              <ChevronDown size={14} className={`transition-transform ${menuAbierto ? 'rotate-180' : ''}`} />
+            </button>
+            {menuAbierto && (
+              <div className="absolute right-0 top-12 z-50 w-52 overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-lift">
+                {opcionesNuevo.map(({ icon: Icon, label, ruta }) => (
+                  <button
+                    key={ruta}
+                    onClick={() => { navigate(ruta); setMenuAbierto(false); }}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-sm text-ink/70 transition hover:bg-brand-50 hover:text-ink"
+                  >
+                    <Icon size={15} className="text-brand-500" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

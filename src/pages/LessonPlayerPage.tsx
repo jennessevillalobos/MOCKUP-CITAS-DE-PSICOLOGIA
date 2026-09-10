@@ -45,6 +45,15 @@ export default function LessonPlayerPage() {
   const [nota, setNota] = useState('');
   const [notaGuardada, setNotaGuardada] = useState(false);
   const [temarioAbierto, setTemarioAbierto] = useState(false);
+  const [leccionToast, setLeccionToast] = useState('');
+
+  function navLeccion(dir: 'anterior' | 'siguiente') {
+    const msg = dir === 'anterior'
+      ? (language === 'es' ? 'Esta es la primera lección de la demo.' : 'This is the first demo lesson.')
+      : (language === 'es' ? 'Esta es la última lección de la demo.' : 'This is the last demo lesson.');
+    setLeccionToast(msg);
+    window.setTimeout(() => setLeccionToast(''), 2500);
+  }
 
   const totalLecciones = TEMARIO.reduce((acc, m) => acc + m.lecciones.length, 0);
 
@@ -175,10 +184,13 @@ export default function LessonPlayerPage() {
 
           {/* Prev / Next */}
           <div className="mt-4 flex items-center justify-between gap-3">
-            <button className="inline-flex flex-1 items-center gap-2 rounded-full border border-brand-200 px-5 py-2.5 text-sm font-semibold text-ink/70 hover:bg-brand-50 sm:flex-none">
+            <button onClick={() => navLeccion('anterior')} className="inline-flex flex-1 items-center gap-2 rounded-full border border-brand-200 px-5 py-2.5 text-sm font-semibold text-ink/70 hover:bg-brand-50 sm:flex-none">
               <ChevronLeft size={16} /> {t.previous}
             </button>
-            <button className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-brand-200 px-5 py-2.5 text-sm font-semibold text-ink/70 hover:bg-brand-50 sm:flex-none">
+            {leccionToast && (
+              <span className="rounded-xl bg-ink/80 px-3 py-1.5 text-xs font-semibold text-white">{leccionToast}</span>
+            )}
+            <button onClick={() => navLeccion('siguiente')} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-brand-200 px-5 py-2.5 text-sm font-semibold text-ink/70 hover:bg-brand-50 sm:flex-none">
               {t.next} <ChevronRight size={16} />
             </button>
           </div>

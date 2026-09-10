@@ -84,6 +84,14 @@ export default function AdminSettingsPage() {
   const [buscarLog, setBuscarLog] = useState('');
   const [filtroTipoLog, setFiltroTipoLog] = useState<'todos' | AuditLogEntry['tipo']>('todos');
 
+  const [savedGeneral, setSavedGeneral] = useState(false);
+  const [savedPwa, setSavedPwa] = useState(false);
+  const [savedPerms, setSavedPerms] = useState(false);
+
+  function guardarGeneral() { setSavedGeneral(true); setTimeout(() => setSavedGeneral(false), 2000); }
+  function guardarPwa() { setSavedPwa(true); setTimeout(() => setSavedPwa(false), 2000); }
+  function guardarPerms() { setSavedPerms(true); setTimeout(() => setSavedPerms(false), 2000); }
+
   const tabs: { key: Tab; label: string; icon: typeof Settings2 }[] = [
     { key: 'general', label: t.tabs.general, icon: Settings2 },
     { key: 'seo', label: t.tabs.seo, icon: SearchIcon },
@@ -225,9 +233,9 @@ export default function AdminSettingsPage() {
                 </div>
               </div>
 
-              <button className="flex items-center gap-2 rounded-xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft">
+              <button onClick={guardarGeneral} className="flex items-center gap-2 rounded-xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft hover:opacity-90">
                 <Save size={15} />
-                {t.save}
+                {savedGeneral ? '✓ Guardado' : t.save}
               </button>
             </section>
           )}
@@ -340,9 +348,9 @@ export default function AdminSettingsPage() {
                   <input type="checkbox" checked={pwa.offlineMode} onChange={(e) => setPwa({ ...pwa, offlineMode: e.target.checked })} className="h-4 w-4 rounded border-brand-300 text-brand-600" />
                 </label>
 
-                <button className="flex items-center gap-2 rounded-xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft">
+                <button onClick={guardarPwa} className="flex items-center gap-2 rounded-xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft hover:opacity-90">
                   <Save size={15} />
-                  {t.save}
+                  {savedPwa ? '✓ Guardado' : t.save}
                 </button>
               </div>
 
@@ -478,9 +486,9 @@ export default function AdminSettingsPage() {
                     </tbody>
                   </table>
                 </div>
-                <button className="mt-4 flex items-center gap-2 rounded-xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft">
+                <button onClick={guardarPerms} className="mt-4 flex items-center gap-2 rounded-xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft hover:opacity-90">
                   <Save size={15} />
-                  {t.savePerms}
+                  {savedPerms ? '✓ Guardado' : t.savePerms}
                 </button>
               </section>
             </div>

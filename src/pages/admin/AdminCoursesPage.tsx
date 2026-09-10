@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { GraduationCap, Users, Lock, Receipt, Search, Plus, Award, RefreshCw } from 'lucide-react';
 import AdminLayout from '@/components/admin/AdminLayout';
 import StatusBadge from '@/components/admin/ui/StatusBadge';
@@ -138,10 +138,13 @@ export default function AdminCoursesPage() {
           <p className="mt-1 text-sm text-ink/50">{t.subtitle}</p>
         </div>
         {tab === 'cursos' && (
-          <button className="flex h-10 items-center gap-2 rounded-2xl bg-brand-gradient px-4 text-sm font-bold text-white shadow-soft">
+          <Link
+            to="/instructor/constructor/nuevo"
+            className="flex h-10 items-center gap-2 rounded-2xl bg-brand-gradient px-4 text-sm font-bold text-white shadow-soft hover:opacity-90"
+          >
             <Plus size={16} />
             {t.newCourse}
-          </button>
+          </Link>
         )}
       </div>
 

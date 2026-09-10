@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  Trash2, Check, Download, ChevronRight,
+  Trash2, Check, Download, ChevronRight, Plus,
 } from 'lucide-react';
 import PortalLayout from '@/components/site/PortalLayout';
 import { INSTRUCTOR_NAV_LABELS, buildInstructorNav } from '@/components/site/instructorNav';
@@ -41,6 +41,7 @@ const text = {
     enRevision: 'En revisión', ver: 'Ver', calificar: 'Calificar',
     sinDatosReporte: 'Aún no hay intentos para este curso/evaluación.',
     seleccionaEvaluacion: 'Selecciona un intento de la izquierda para calificarlo.',
+    nuevaEvaluacion: '+ Nueva evaluación',
   },
   en: {
     volverPortal: 'Back to panel',
@@ -69,6 +70,7 @@ const text = {
     enRevision: 'Reviewing', ver: 'View', calificar: 'Grade',
     sinDatosReporte: 'No attempts yet for this course/quiz.',
     seleccionaEvaluacion: 'Select an attempt on the left to grade it.',
+    nuevaEvaluacion: '+ New quiz',
   },
 } as const;
 
@@ -163,6 +165,31 @@ export default function EvaluacionesPage() {
     const mod = modulosCurso.find((m) => m.id === id);
     const primerEval = mod ? evaluacionesDeModulo([mod])[0] : undefined;
     setEvaluacionId(primerEval?.id ?? '');
+  }
+
+  function crearEvaluacion() {
+    if (!moduloActual) return;
+    const nuevaId = nextId('q');
+    const nuevaEval: EvaluacionBuilder = {
+      id: nuevaId,
+      tipo: 'evaluacion',
+      tituloEval: language === 'es' ? 'Nueva evaluación' : 'New quiz',
+      preguntas: 0,
+      preguntasDetalle: [],
+      intentos: 3,
+      notaMinimaPct: 70,
+      tiempoLimiteMin: 10,
+      barajar: true,
+      mostrarRetroalimentacion: true,
+      desbloqueaSiguiente: true,
+    };
+    const nuevosModulos = modulosCurso.map((m) =>
+      m.id !== moduloActual.id
+        ? m
+        : { ...m, items: [...m.items, nuevaEval] }
+    );
+    actualizarModulos(cursoKey, nuevosModulos);
+    setEvaluacionId(nuevaId);
   }
 
   function actualizarPregunta(id: string, fields: Partial<PreguntaEvaluacion>) {
@@ -346,6 +373,15 @@ export default function EvaluacionesPage() {
               <select value={evaluacionId} onChange={(e) => setEvaluacionId(e.target.value)} className="focus-ring rounded-full border border-brand-200 px-3 py-2 text-sm text-ink">
                 {evaluacionesModulo.map((e) => <option key={e.id} value={e.id}>{e.tituloEval || e.id}</option>)}
               </select>
+              {moduloActual && (
+                <button
+                  onClick={crearEvaluacion}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-brand-gradient px-4 py-2 text-sm font-semibold text-white shadow-soft hover:opacity-90"
+                >
+                  <Plus size={14} />
+                  {t.nuevaEvaluacion}
+                </button>
+              )}
             </div>
 
             {!evalOriginal ? (

@@ -98,6 +98,9 @@ export default function AdminNotificationsPage() {
     setIntegraciones((prev) => prev.map((i) => (i.id === id ? { ...i, conectada: !i.conectada } : i)));
   }
 
+  const [savedPlantilla, setSavedPlantilla] = useState(false);
+  function guardarPlantilla() { setSavedPlantilla(true); setTimeout(() => setSavedPlantilla(false), 2000); }
+
   const plantillaSel = plantillas.find((p) => p.id === plantillaSelId) ?? plantillas[0];
 
   return (
@@ -284,7 +287,9 @@ export default function AdminNotificationsPage() {
               </div>
             </div>
 
-            <button className="rounded-xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft">{t.save}</button>
+            <button onClick={guardarPlantilla} className="rounded-xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft hover:opacity-90">
+              {savedPlantilla ? '✓ Guardado' : t.save}
+            </button>
           </section>
         </div>
       )}
