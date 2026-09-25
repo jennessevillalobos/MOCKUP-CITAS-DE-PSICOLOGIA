@@ -115,26 +115,33 @@ Deno.serve(async (req) => {
     .eq('dia_semana', diaSemana);
 
   const horarioValido = (horarios ?? []).find(
-    (h) => body.nueva_hora >= h.hora_inicio.slice(0, 5) && body.nueva_hora <= h.hora_fin.slice(0, 5)
+    (h) => toMins(body.nueva_hora) >= toMins(h.hora_inicio)
+      && toMins(body.nueva_hora) + cita.duracion_minutos <= toMins(h.hora_fin)
   );
   if (!horarioValido) {
     return jsonError('no_schedule', 'El profesional no atiende en ese día y horario.', 409, requestId);
   }
 
-  //   b) Sin excepciones ese día
+  const slotStart = toMins(body.nueva_hora);
+  const slotEnd = slotStart + cita.duracion_minutos;
+
+  //   b) Ninguna excepción la bloquea: vacaciones o bloqueos de día completo
+  //      cierran el día; los bloqueos por horas solo cierran su franja.
   const { data: excepciones } = await serviceClient
     .from('excepciones_horario')
-    .select('id')
+    .select('tipo, hora_inicio, hora_fin')
     .eq('profesional_id', cita.profesional_id)
     .eq('fecha', body.nueva_fecha);
 
-  if ((excepciones ?? []).length > 0) {
-    return jsonError('blocked_date', 'El profesional no está disponible esa fecha.', 409, requestId);
+  const bloqueada = (excepciones ?? []).some(
+    (e) => e.tipo === 'vacacion' || !e.hora_inicio || !e.hora_fin
+      || (slotStart < toMins(e.hora_fin) && slotEnd > toMins(e.hora_inicio))
+  );
+  if (bloqueada) {
+    return jsonError('blocked_date', 'El profesional no está disponible en ese horario.', 409, requestId);
   }
 
   //   c) Sin cita (excluyendo la actual) ni bloqueo activo en ese slot
-  const slotStart = toMins(body.nueva_hora);
-  const slotEnd = slotStart + cita.duracion_minutos;
 
   const { data: citasConflicto } = await serviceClient
     .from('citas')

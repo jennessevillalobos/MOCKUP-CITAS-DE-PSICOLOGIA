@@ -17,14 +17,7 @@ interface BookInput {
   hora: string;
 }
 
-interface AvailabilitySlot {
-  profesional_id: number;
-  fecha: string;
-  hora: string;
-  duracion_minutos: number;
-  precio: number;
-  moneda: string | null;
-}
+const toMins = (h: string) => parseInt(h.slice(0, 2)) * 60 + parseInt(h.slice(3, 5));
 
 Deno.serve(async (req) => {
   const preflight = handleOptions(req);
@@ -76,36 +69,50 @@ Deno.serve(async (req) => {
 
   if (horError) return jsonError('db_error', 'Error al consultar horarios.', 500, requestId);
 
+  // Misma regla de solapamiento que get-available-slots: la sesión completa
+  // debe caber dentro del horario de atención.
+  const slotStart = toMins(body.hora);
+  const slotEnd = slotStart + svcMod.duracion_minutos;
+
   const horarioValido = (horarios ?? []).find(
-    (h) => body.hora >= h.hora_inicio.slice(0, 5) && body.hora <= h.hora_fin.slice(0, 5)
+    (h) => slotStart >= toMins(h.hora_inicio) && slotEnd <= toMins(h.hora_fin)
   );
   if (!horarioValido) {
     return jsonError('no_schedule', 'El profesional no atiende ese día y horario.', 409, requestId);
   }
 
-  //   b) No hay excepciones (bloqueo/vacaciones) en esa fecha.
+  const seSolapa = (inicio: string, fin: string) => slotStart < toMins(fin) && slotEnd > toMins(inicio);
+
+  //   b) Ninguna excepción la bloquea: vacaciones o bloqueos de día completo
+  //      cierran el día; los bloqueos por horas solo cierran su franja.
   const { data: excepciones, error: excError } = await serviceClient
     .from('excepciones_horario')
-    .select('*')
+    .select('tipo, hora_inicio, hora_fin')
     .eq('profesional_id', body.profesional_id)
     .eq('fecha', body.fecha);
 
   if (excError) return jsonError('db_error', 'Error al consultar excepciones.', 500, requestId);
-  if ((excepciones ?? []).length > 0) {
-    return jsonError('blocked_date', 'El profesional no está disponible esa fecha.', 409, requestId);
+  const bloqueada = (excepciones ?? []).some(
+    (e) => e.tipo === 'vacacion' || !e.hora_inicio || !e.hora_fin || seSolapa(e.hora_inicio, e.hora_fin)
+  );
+  if (bloqueada) {
+    return jsonError('blocked_date', 'El profesional no está disponible en ese horario.', 409, requestId);
   }
 
-  //   c) No hay otra cita confirmada o pendiente de pago en ese mismo slot.
+  //   c) No se solapa con otra cita confirmada o pendiente de pago.
   const { data: conflictos, error: conflError } = await serviceClient
     .from('citas')
-    .select('id')
+    .select('hora, duracion_minutos')
     .eq('profesional_id', body.profesional_id)
     .eq('fecha', body.fecha)
-    .eq('hora', body.hora)
     .in('estado', ['pendiente_pago', 'parcialmente_pagada', 'confirmada']);
 
   if (conflError) return jsonError('db_error', 'Error al verificar conflictos.', 500, requestId);
-  if ((conflictos ?? []).length > 0) {
+  const ocupada = (conflictos ?? []).some((c) => {
+    const inicio = toMins(c.hora);
+    return slotStart < inicio + c.duracion_minutos && slotEnd > inicio;
+  });
+  if (ocupada) {
     return jsonError('slot_taken', 'El horario ya está reservado.', 409, requestId);
   }
 

@@ -23,7 +23,9 @@ const text = {
     tabSemanal: 'Horario semanal', tabCalendario: 'Calendario y bloqueos',
     activo: 'Activo', inactivo: 'Inactivo', noLaborable: 'No laborable',
     duracionSesiones: 'Duración de las sesiones', duracionCita: 'Duración de cada cita', descansoCitas: 'Descanso entre citas',
-    min: 'min', guardarHorario: 'Guardar horario', guardadoOk: 'Guardado ✓',
+    min: 'min', guardarHorario: 'Guardar horario', guardadoOk: 'Guardado ✓', guardando: 'Guardando…',
+    enBase: 'Tu horario y tus bloqueos se guardan en la agenda real: los pacientes los ven al reservar en /agendar.',
+    errorAgenda: 'No se pudo guardar en la agenda:',
     hoyLabel: 'Hoy', noLaborableCorta: 'No laborable', citasCorta: 'citas', citaCorta: 'cita',
     bloqueado: 'Bloqueado', proximosBloqueos: 'Próximos bloqueos', sinBloqueosProximos: 'No tienes bloqueos programados.',
     quitarBloqueo: 'Quitar bloqueo', confirmarQuitar: '¿Quitar este bloqueo? El día volverá a estar disponible según tu horario semanal.',
@@ -49,7 +51,9 @@ const text = {
     tabSemanal: 'Weekly schedule', tabCalendario: 'Calendar & time off',
     activo: 'Active', inactivo: 'Inactive', noLaborable: 'Not working',
     duracionSesiones: 'Session settings', duracionCita: 'Session duration', descansoCitas: 'Break between sessions',
-    min: 'min', guardarHorario: 'Save schedule', guardadoOk: 'Saved ✓',
+    min: 'min', guardarHorario: 'Save schedule', guardadoOk: 'Saved ✓', guardando: 'Saving…',
+    enBase: 'Your schedule and time off are saved to the live calendar: patients see them when booking at /agendar.',
+    errorAgenda: 'Could not save to the calendar:',
     hoyLabel: 'Today', noLaborableCorta: 'Not working', citasCorta: 'appts', citaCorta: 'appt',
     bloqueado: 'Blocked', proximosBloqueos: 'Upcoming time off', sinBloqueosProximos: 'You have no time off scheduled.',
     quitarBloqueo: 'Remove', confirmarQuitar: 'Remove this block? The day will be available again according to your weekly schedule.',
@@ -149,11 +153,12 @@ export default function AgendaDisponibilidadPage() {
   const t = text[language];
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['agenda'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
 
-  const { horarioSemanal, configSesiones, bloqueos, actualizarDia, actualizarConfigSesiones, agregarBloqueo, quitarBloqueo } = useInstructorSchedule();
+  const { horarioSemanal, configSesiones, bloqueos, enBase, errorAgenda, actualizarDia, actualizarConfigSesiones, guardarHorario, agregarBloqueo, quitarBloqueo } = useInstructorSchedule();
   const { citas, reagendarCita, cambiarEstado } = useInstructorAgenda();
 
   const [tab, setTab] = useState<Tab>('semanal');
   const [guardadoOk, setGuardadoOk] = useState(false);
+  const [guardando, setGuardando] = useState(false);
   const [avisoTexto, setAvisoTexto] = useState<string | null>(null);
 
   function mostrarAviso(msg: string) {
@@ -177,7 +182,11 @@ export default function AgendaDisponibilidadPage() {
     return `${b.fechaInicio} · ${b.horaInicio}–${b.horaFin} · ${motivo}`;
   }
 
-  function guardarHorarioClick() {
+  async function guardarHorarioClick() {
+    setGuardando(true);
+    const guardado = await guardarHorario();
+    setGuardando(false);
+    if (!guardado) return;
     setGuardadoOk(true);
     window.setTimeout(() => setGuardadoOk(false), 1800);
   }
@@ -280,6 +289,13 @@ export default function AgendaDisponibilidadPage() {
         <p className="text-sm text-ink/50">{t.subtitulo}</p>
       </div>
 
+      {enBase && !errorAgenda && (
+        <p className="rounded-2xl bg-brand-50 px-4 py-3 text-sm text-brand-700">{t.enBase}</p>
+      )}
+      {errorAgenda && (
+        <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{t.errorAgenda} {errorAgenda}</p>
+      )}
+
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="rounded-2xl border border-brand-100 bg-white p-4">
           <p className="text-xs text-ink/50">{t.diasLaborables}</p>
@@ -372,8 +388,8 @@ export default function AgendaDisponibilidadPage() {
                 {[0, 5, 10, 15].map((n) => <option key={n} value={n}>{n} {t.min}</option>)}
               </select>
             </div>
-            <button onClick={guardarHorarioClick} className="w-full rounded-full bg-brand-gradient py-2.5 text-sm font-semibold text-white shadow-soft hover:opacity-90">
-              {guardadoOk ? t.guardadoOk : t.guardarHorario}
+            <button onClick={guardarHorarioClick} disabled={guardando} className="w-full rounded-full bg-brand-gradient py-2.5 text-sm font-semibold text-white shadow-soft hover:opacity-90 disabled:opacity-60">
+              {guardando ? t.guardando : guardadoOk ? t.guardadoOk : t.guardarHorario}
             </button>
           </div>
         </div>
