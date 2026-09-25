@@ -49,6 +49,17 @@ export interface BookAppointmentOutput {
   estado: string;
 }
 
+export interface BookAppointmentGuestInput extends BookAppointmentInput {
+  nombre: string;
+  correo: string;
+  telefono?: string;
+  password: string;
+}
+
+export interface BookAppointmentGuestOutput extends BookAppointmentOutput {
+  cuenta_creada: boolean;
+}
+
 export interface CreateStripeSessionOutput {
   session_id: string;
   checkout_url: string;
@@ -151,6 +162,17 @@ export async function bookAppointment(
   input: BookAppointmentInput
 ): Promise<Result<BookAppointmentOutput>> {
   return callEdgeFunction<BookAppointmentOutput>('book-appointment', input);
+}
+
+/**
+ * Reserva sin sesión: crea la cuenta del paciente (con su contraseña) y la cita.
+ * Si el correo ya tiene cuenta devuelve `account_exists` (debe iniciar sesión).
+ * Edge Function: `book-appointment-guest`
+ */
+export async function bookAppointmentGuest(
+  input: BookAppointmentGuestInput
+): Promise<Result<BookAppointmentGuestOutput>> {
+  return callEdgeFunction<BookAppointmentGuestOutput>('book-appointment-guest', input, { publica: true });
 }
 
 /**

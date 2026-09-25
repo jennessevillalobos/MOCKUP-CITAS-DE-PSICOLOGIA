@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, ArrowRight, Building2, Check, CheckCircle2, Clock3, CreditCard, Lock,
   Mail, MapPin, MonitorSmartphone, Phone, ShieldCheck, User, Loader2, PartyPopper,
@@ -9,7 +9,7 @@ import SiteFooter from '@/components/site/SiteFooter';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
-import { bookAppointment, getAvailableSlots } from '@/lib/api/edgeFunctions';
+import { bookAppointment, bookAppointmentGuest, getAvailableSlots } from '@/lib/api/edgeFunctions';
 import { resolverIdsReserva } from '@/lib/api/catalog';
 import { SERVICIOS_PUBLICOS } from '@/data/servicesPageData';
 import { PROFESIONALES_PUBLICOS } from '@/data/professionalsPageData';
@@ -38,6 +38,11 @@ const text = {
     crearCuenta: 'Crear una cuenta para ver y gestionar esta cita desde tu Portal Paciente',
     contrasena: 'Crea una contraseña', confirmarContrasena: 'Confirma la contraseña',
     sinBackendNota: 'Aún no tenemos backend en esta demo — no se almacena de forma segura, pero te permitirá entrar de nuevo con este correo.',
+    cuentaObligatoria: 'Crearemos tu cuenta del Portal Paciente con este correo para que puedas ver, reagendar o cancelar tu cita.',
+    notaCuentaReal: 'Con esta contraseña entrarás a tu Portal Paciente. Mínimo 6 caracteres.',
+    cuentaExistente: 'Ya existe una cuenta con este correo.',
+    iniciaSesion: 'Inicia sesión para reservar',
+    contrasenasNoCoinciden: 'Las contraseñas no coinciden.',
     yaSesion: 'Reservando como', noEresTu: '¿No eres tú?',
     paso6Sub: 'Completa el pago para confirmar tu cita.',
     resumen: 'Resumen de tu cita', servicio: 'Servicio', profesional: 'Profesional', fechaHora: 'Fecha y hora', modalidad: 'Modalidad', duracion: 'Duración', total: 'Total a pagar',
@@ -46,6 +51,7 @@ const text = {
     pagar: 'Pagar', pagando: 'Procesando pago…',
     confTitle: '¡Tu cita quedó confirmada!', confSub: 'Guardamos todos los detalles, aquí tienes tu resumen.',
     confId: 'N.º de confirmación', confCorreoAviso: (correo: string) => `Te enviamos la confirmación a ${correo} (simulado — esta demo aún no envía correos reales).`,
+    confCuentaReal: (correo: string) => `Tu cuenta quedó creada y ya iniciaste sesión con ${correo}. Desde tu Portal Paciente puedes ver, reagendar o cancelar la cita.`,
     confCuentaCreada: 'Creamos tu acceso al Portal Paciente con este correo — desde ahí podrás ver, reagendar o cancelar tu cita.',
     irPortal: 'Ir a mi Portal Paciente', volverInicio: 'Volver al inicio',
     sedeCentro: 'Sede Centro',
@@ -74,6 +80,11 @@ const text = {
     crearCuenta: 'Create an account to view and manage this appointment from your Patient Portal',
     contrasena: 'Create a password', confirmarContrasena: 'Confirm password',
     sinBackendNota: "This demo has no backend yet — it isn't stored securely, but it will let you log back in with this email.",
+    cuentaObligatoria: "We'll create your Patient Portal account with this email so you can view, reschedule or cancel your appointment.",
+    notaCuentaReal: "You'll use this password to sign in to your Patient Portal. At least 6 characters.",
+    cuentaExistente: 'An account with this email already exists.',
+    iniciaSesion: 'Sign in to book',
+    contrasenasNoCoinciden: "Passwords don't match.",
     yaSesion: 'Booking as', noEresTu: 'Not you?',
     paso6Sub: 'Complete payment to confirm your appointment.',
     resumen: 'Your appointment summary', servicio: 'Service', profesional: 'Professional', fechaHora: 'Date & time', modalidad: 'Mode', duracion: 'Duration', total: 'Total due',
@@ -82,6 +93,7 @@ const text = {
     pagar: 'Pay', pagando: 'Processing payment…',
     confTitle: 'Your appointment is confirmed!', confSub: "We've saved all the details — here's your summary.",
     confId: 'Confirmation No.', confCorreoAviso: (correo: string) => `We sent the confirmation to ${correo} (simulated — this demo doesn't send real emails yet).`,
+    confCuentaReal: (correo: string) => `Your account was created and you're signed in as ${correo}. From your Patient Portal you can view, reschedule or cancel the appointment.`,
     confCuentaCreada: 'We created your Patient Portal access with this email — from there you can view, reschedule or cancel your appointment.',
     irPortal: 'Go to my Patient Portal', volverInicio: 'Back to home',
     sedeCentro: 'Downtown location',
@@ -158,7 +170,9 @@ export default function AgendarCitaPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
   const navigate = useNavigate();
-  const { user, login, isRealAuth, registerWithPassword } = useSiteAuth();
+  const { user, login, isRealAuth, esSesionReal, loginWithPassword } = useSiteAuth();
+  // Con Supabase, quien no tiene sesión real reserva como invitado y se le crea la cuenta.
+  const invitadoReal = isRealAuth && !esSesionReal;
   const { citas, agregarCita } = useInstructorAgenda();
   const [searchParams] = useSearchParams();
 
@@ -192,7 +206,8 @@ export default function AgendarCitaPage() {
   const [fechaISO, setFechaISO] = useState<string | null>(progresoAplicable?.fechaISO ?? null);
   const [hora, setHora] = useState<string | null>(progresoAplicable?.hora ?? null);
 
-  const esPaciente = user?.rol === 'paciente';
+  // Paciente con sesión (en modo real, solo si la sesión de Supabase es real).
+  const esPaciente = user?.rol === 'paciente' && (!isRealAuth || esSesionReal);
   const [nombre, setNombre] = useState(esPaciente ? user!.nombre : progresoInicial?.nombre ?? '');
   const [correo, setCorreo] = useState(esPaciente ? user!.correo : progresoInicial?.correo ?? '');
   const [telefono, setTelefono] = useState(esPaciente ? user?.telefono ?? '' : progresoInicial?.telefono ?? '');
@@ -206,6 +221,7 @@ export default function AgendarCitaPage() {
   const [cvv, setCvv] = useState('');
   const [pagando, setPagando] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const [cuentaExiste, setCuentaExiste] = useState(false);
 
   const [citaConfirmada, setCitaConfirmada] = useState<{ id: string; correo: string; cuentaCreada: boolean } | null>(null);
 
@@ -302,22 +318,22 @@ export default function AgendarCitaPage() {
     irA(3);
   }
 
+  // Invitado real: la cuenta es obligatoria (la cita necesita un titular).
+  const pideContrasena = invitadoReal || (!esPaciente && crearCuenta);
   const datosValidos =
     nombre.trim().length > 1 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo) &&
-    (esPaciente || !crearCuenta || (contrasena.length >= 6 && contrasena === confirmarContrasena));
+    (!pideContrasena || (contrasena.length >= 6 && contrasena === confirmarContrasena));
 
   async function confirmarPago(event: FormEvent) {
     event.preventDefault();
     if (!servicio || !profesional || !modalidad || !fechaISO || !hora) return;
     setPagando(true);
 
-    // ── Ruta real: Supabase está configurado y el usuario tiene sesión ──
+    // ── Ruta real: Supabase está configurado ──
     if (isRealAuth) {
-      // Si el usuario no tiene sesión y quiere crear cuenta, la creamos primero
-      if (!esPaciente && crearCuenta && contrasena.length >= 6) {
-        await registerWithPassword(correo.trim(), contrasena, nombre.trim(), 'paciente');
-      }
+      setBookingError(null);
+      setCuentaExiste(false);
 
       // Las keys del wizard se guardan como `slug` en la base.
       const ids = await resolverIdsReserva({
@@ -332,16 +348,34 @@ export default function AgendarCitaPage() {
         return;
       }
 
-      const res = await bookAppointment({
-        ...ids.data,
-        fecha: fechaISO,
-        hora: hora,
-      });
+      // Con sesión real reserva a su nombre; sin sesión, la función crea la
+      // cuenta con su contraseña y la cita, y luego se inicia sesión.
+      const res = invitadoReal
+        ? await bookAppointmentGuest({
+            ...ids.data,
+            fecha: fechaISO,
+            hora,
+            nombre: nombre.trim(),
+            correo: correo.trim(),
+            telefono: telefono.trim() || undefined,
+            password: contrasena,
+          })
+        : await bookAppointment({ ...ids.data, fecha: fechaISO, hora });
+
+      if (res.data && invitadoReal) {
+        const sesion = await loginWithPassword(correo.trim(), contrasena);
+        if (sesion.error) console.error('[book-appointment-guest] login', sesion.error);
+      }
 
       setPagando(false);
       if (res.data) {
-        setCitaConfirmada({ id: res.data.cita_id, correo: correo.trim(), cuentaCreada: !esPaciente && crearCuenta });
+        setContrasena('');
+        setConfirmarContrasena('');
+        setCitaConfirmada({ id: res.data.cita_id, correo: correo.trim(), cuentaCreada: invitadoReal });
         irA(7);
+      } else if (res.error?.code === 'account_exists') {
+        setCuentaExiste(true);
+        setBookingError(t.cuentaExistente);
       } else {
         // Mostrar error en el UI sin romper el flujo
         console.error('[book-appointment]', res.error);
@@ -633,11 +667,15 @@ export default function AgendarCitaPage() {
 
                   {!esPaciente && (
                     <div className="mt-5 border-t border-brand-50 pt-5">
-                      <label className="flex cursor-pointer items-start gap-3 text-sm text-ink/70">
-                        <input type="checkbox" checked={crearCuenta} onChange={(e) => setCrearCuenta(e.target.checked)} className="mt-0.5 h-4 w-4 accent-brand-600" />
-                        {t.crearCuenta}
-                      </label>
-                      {crearCuenta && (
+                      {invitadoReal ? (
+                        <p className="text-sm text-ink/70">{t.cuentaObligatoria}</p>
+                      ) : (
+                        <label className="flex cursor-pointer items-start gap-3 text-sm text-ink/70">
+                          <input type="checkbox" checked={crearCuenta} onChange={(e) => setCrearCuenta(e.target.checked)} className="mt-0.5 h-4 w-4 accent-brand-600" />
+                          {t.crearCuenta}
+                        </label>
+                      )}
+                      {pideContrasena && (
                         <div className="mt-4 grid gap-4 sm:grid-cols-2">
                           <label>
                             <span className="text-xs font-bold text-ink/70">{t.contrasena}</span>
@@ -653,7 +691,10 @@ export default function AgendarCitaPage() {
                               <input type="password" value={confirmarContrasena} onChange={(e) => setConfirmarContrasena(e.target.value)} className="w-full bg-transparent text-sm text-ink outline-none" />
                             </div>
                           </label>
-                          <p className="text-xs leading-5 text-ink/45 sm:col-span-2">{t.sinBackendNota}</p>
+                          {confirmarContrasena && contrasena !== confirmarContrasena && (
+                            <p className="text-xs text-rose-600 sm:col-span-2">{t.contrasenasNoCoinciden}</p>
+                          )}
+                          <p className="text-xs leading-5 text-ink/45 sm:col-span-2">{invitadoReal ? t.notaCuentaReal : t.sinBackendNota}</p>
                         </div>
                       )}
                     </div>
@@ -669,6 +710,9 @@ export default function AgendarCitaPage() {
                   <div className="mb-4 flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                     <span>⚠️</span>
                     <span>{bookingError}</span>
+                    {cuentaExiste && (
+                      <Link to="/iniciar-sesion" className="ml-auto whitespace-nowrap font-semibold underline">{t.iniciaSesion}</Link>
+                    )}
                   </div>
                 )}
                 <div className="mx-auto max-w-xl">
@@ -795,8 +839,14 @@ export default function AgendarCitaPage() {
                   <p className="mt-4 text-xs text-ink/40">{t.confId}: <span className="font-mono font-semibold text-ink/60">{citaConfirmada.id.toUpperCase()}</span></p>
                 </div>
 
-                <p className="mx-auto mt-6 max-w-md text-xs leading-5 text-ink/45">{t.confCorreoAviso(citaConfirmada.correo)}</p>
-                {citaConfirmada.cuentaCreada && (
+                {isRealAuth ? (
+                  citaConfirmada.cuentaCreada && (
+                    <p className="mx-auto mt-6 max-w-md text-xs leading-5 text-brand-600">{t.confCuentaReal(citaConfirmada.correo)}</p>
+                  )
+                ) : (
+                  <p className="mx-auto mt-6 max-w-md text-xs leading-5 text-ink/45">{t.confCorreoAviso(citaConfirmada.correo)}</p>
+                )}
+                {!isRealAuth && citaConfirmada.cuentaCreada && (
                   <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-brand-600">{t.confCuentaCreada}</p>
                 )}
 
