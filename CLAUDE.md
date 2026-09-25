@@ -1,0 +1,69 @@
+# PsiqueAmor — contexto del proyecto
+
+Plataforma de psicología (mockup funcional en transición a backend real con Supabase) con sitio público, agendamiento de citas, aula virtual para pacientes, panel completo de profesional/instructor y panel admin.
+
+**Repo GitHub**: https://github.com/jennessevillalobos/MOCKUP-CITAS-DE-PSICOLOGIA (rama `main`)
+
+## Stack
+
+React + TypeScript + Vite + Tailwind CSS, `react-router-dom`. Paleta con tokens Tailwind `ink`/`brand`/`lilac`. Todo el contenido es bilingüe ES/EN.
+
+Comandos útiles: `npm run dev`, `npm run typecheck`, `npm run build`, `npm run lint`.
+
+## Backend: Supabase
+
+- **Proyecto**: `psique-amor` (ref `jdvzwjrlsavuygwfisie`, us-east-1, plan free) en la organización **PSIQUE-AMOR** (`rbadnxhqjhljzedaylvw`). Creado desde cero el 2026-09-25 (la org estaba vacía). Los proyectos "PsyHealth" y "Ruta y ventas OLH" de otra cuenta **no** son de este repo.
+- **Conexión**: `src/lib/supabase/client.ts` lee `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY` de `.env.local` (gitignored, cada persona crea el suyo). Sin esas variables `isSupabaseConfigured()` es `false` y la app cae a **modo demo** (`localStorage`). `SiteAuthContext` expone `isRealAuth` para distinguir ambos modos.
+- **Esquema**: `supabase/migrations/001…011` (36 tablas, RLS en todas). Todas ya están aplicadas al proyecto; el `seed.sql` también. Una migración nueva va como `012_…sql` en el repo **y** se aplica al proyecto (no editar migraciones ya aplicadas).
+- **Edge Functions**: las 15 de `supabase/functions/` están desplegadas. Responden `{ data, error: { code, message } | null, request_id }`; `src/lib/api/edgeFunctions.ts` es el cliente. `stripe-webhook` y `paypal-webhook` van con `verify_jwt=false` (validan firma propia); `confirm-appointment` solo acepta service role o usuarios con rol `administrador`.
+- **Tipos de retorno**: la capa de servicios devuelve `Result<T>` (`{ data, error }`), **sin** propiedad `.ok` — el éxito se comprueba con `!res.error`.
+
+## ⚠️ Antes de editar: finales de línea
+
+El working tree en Windows usa CRLF, pero lo commiteado en `main` está en LF. Esto hace que `git status`/`git diff` marquen como "modified" casi **todos** los archivos del repo aunque no haya cambios de contenido reales — es puramente un efecto de fin de línea. **Usa siempre `git diff --ignore-space-at-eol`** (o `--stat` con la misma bandera) para ver diferencias de contenido genuinas antes de asumir que algo se perdió o fue sobrescrito.
+
+## Qué ya está construido (frontend)
+
+**Panel admin**: 14 módulos — Dashboard, Usuarios, Servicios/Profesionales/Lugares, Agenda, Cursos, Evaluaciones, Clases en vivo, Pagos, Finanzas, Productos digitales, Notificaciones, Reportes, Configuración.
+
+**Sitio público**: Home (una sola página larga con secciones ancladas) + página propia por sección: Servicios (`/servicios`, `/servicios/:key`), Profesionales (`/profesionales`, `/profesionales/:slug`), Cursos (`/cursos`, `/cursos/:slug`), Recursos (`/recursos`), Contacto (`/contacto`), Tienda (`/tienda`, `/tienda/:id`), Quiénes somos, Legal, Recuperar contraseña, 404.
+
+**Agendar una cita** (`/agendar`, pública, wizard de 6 pasos + confirmación): Servicio → Profesional → Modalidad → Fecha y hora → Datos del paciente → Pago → Confirmación. Panel lateral "Resumen de tu cita" visible en todos los pasos. La persona **siempre** elige explícitamente entre Online y Presencial (no se deriva de los datos del servicio/profesional) — si elige Presencial, elige también la sede (reutiliza `SEDES` de `contactPageData.ts`). Progreso persistido en `localStorage['psiqueAgendarProgreso']`. Al confirmar, llama a `agregarCita()` de `InstructorAgendaContext`, así la reserva aparece de inmediato en "Mis citas" del profesional y en el Portal Paciente.
+
+**Login/Portal Paciente/Instructor**: `/iniciar-sesion` con selector de rol paciente/profesional. Portal Paciente (`/portal-paciente`) + Mi perfil del paciente (`/portal-paciente/perfil`). Panel Instructor (`/instructor`) con 8 secciones: Dashboard, **Mis citas** (`/instructor/citas`), **Mis cursos** (`/instructor/cursos`), **Constructor de cursos** (`/instructor/constructor/:cursoKey`), **Evaluaciones** (`/instructor/evaluaciones`), **Agenda/Disponibilidad** (`/instructor/agenda`), **Clases en vivo** (`/instructor/vivo`), **Notificaciones** (`/instructor/notificaciones`), **Mi perfil** (`/instructor/perfil`).
+
+**Aula Virtual del paciente** (`/aula-virtual/*`, 10 secciones): Dashboard, Clases, Evaluaciones, Calificaciones, Progreso, Pagos y cuotas, Videos/Libros comprados, Clases en vivo, Notificaciones.
+
+## Patrones clave a respetar
+
+- **Sesión**: `SiteAuthContext.tsx` usa Supabase Auth si está configurado (`loginWithPassword`/`registerWithPassword`); si no, sesión simulada en `localStorage['psiqueUser']` con `rol: 'paciente' | 'profesional'`. `updateProfile()` es el mecanismo agnóstico de rol usado tanto por "Mi perfil" del paciente como del profesional — no duplicar esta lógica.
+- **6 Contexts "funcionales" del instructor**, cada uno con su propia acción CRUD y persistencia en `localStorage`, montados por ruta (no globalmente): `InstructorAgendaContext` (citas/notas — el más central, también alimenta `/agendar` y el Portal Paciente), `InstructorCoursesContext`, `InstructorLiveClassesContext`, `InstructorGradingContext`, `InstructorNotificationsContext`, `InstructorScheduleContext`.
+- **Nav compartido por builder**: `src/components/site/aulaVirtualNav.ts` (`buildAulaVirtualNav(labels, currentKeys)`) e `src/components/site/instructorNav.ts` (`buildInstructorNav(labels, currentKeys, disponibles)`). Importante: a `buildInstructorNav` se le pasa el objeto bilingüe completo `INSTRUCTOR_NAV_LABELS` (`{es, en}`), NUNCA ya indexado por idioma (`INSTRUCTOR_NAV_LABELS[language]`) — la función arma internamente ambos idiomas. Cada página nueva debe agregar su clave a `disponibles` para no dejar un enlace roto en otras páginas del mismo menú.
+- **`PortalLayout.tsx`**: layout compartido (topbar + sidebar azul `brand-800`) para Aula Virtual/Portal Paciente/Instructor — excepto `LessonPlayerPage`, `AssessmentPage` y `ConstructorCursosPage`, que usan layout propio sin sidebar. Prop opcional `profileTo` vuelve clicable el avatar+nombre de la topbar hacia "Mi perfil" (hoy solo lo usan las 8 páginas del instructor).
+- **Antes de asumir que algo "no existe" o tiene tal firma**, verificar directamente en el repo real (puede haber evolucionado fuera de una sesión anterior de Claude) en vez de confiar en una copia de sandbox/caché potencialmente desactualizada.
+
+## Limitaciones/pendientes conocidos (no son bugs, son alcance)
+
+1. El panel del profesional es una única cuenta demo compartida ("Dra. Ana Rivas") que muestra TODAS las citas reservadas sin filtrar por el profesional real de cada una — no hay login/identidad separada por profesional todavía.
+2. El wizard de `/agendar` no consulta los bloqueos/horario real de "Agenda/Disponibilidad" al ofrecer horarios — solo evita horas ya ocupadas por citas existentes.
+3. Los profesionales demo de la Agenda del admin (Dra. Valentina Ríos, Lic. Andrés Duarte, Lic. Sofía Herrera) no incluyen a "Dra. Ana Rivas" — inconsistencia previa sin corregir entre admin e instructor.
+4. "Notificaciones" del instructor usa una lista de demostración, no generada a partir de los Contexts reales.
+5. `profileTo` de `PortalLayout` aún no se extendió al Portal Paciente ni al Aula Virtual (solo el instructor lo usa).
+6. **Base sin profesionales ni horarios**: `profesionales`, `horarios`, `profesional_servicio` están vacías, así que `get-available-slots` devuelve `[]`. Los profesionales del frontend son datos demo en archivos `*Data.ts`.
+7. **Pagos reales**: faltan los secretos de Edge Functions (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYPAL_MODE`, `SITE_URL`) y registrar las URLs de webhook en Stripe/PayPal.
+8. **Descarga de libros**: el frontend (`createDownloadLink`) manda `compra_id` y espera `download_url`, pero la función `create-download-link` pide `producto_id` y devuelve `token`. Sin resolver.
+9. `submit-evaluation` no deduplica respuestas por pregunta (la nota puede pasar de 100). La política RLS de `calificaciones` permite a cualquier usuario autenticado insertar a nombre de otro.
+
+## Cómo se construye este proyecto (convenciones de trabajo)
+
+- Se construye mockup por mockup: HTML subido → `xxxData.ts` + `XxxPage.tsx` (reutilizando datos/modelos ya existentes cuando aplica) → habilitar el ítem en el nav compartido → agregar ruta en `App.tsx` → `npm run typecheck` + `npm run build` → verificación visual.
+- Para features "funcionales": si ya existe tabla en Supabase, leer/escribir ahí (vía `src/lib/api/*` o Edge Functions) manteniendo el fallback demo; si no, crear/extender un Context con `localStorage`, no un estado paralelo.
+- Antes de decisiones de diseño no triviales (fusionar datos duplicados, elegir fuente de imágenes, extender un modelo compartido), preguntar en vez de adivinar.
+- Ante un reporte de "bug", primero reproducir el flujo exacto antes de asumir que hace falta un cambio de código — a veces la función ya existe y solo falta explicar cómo verla.
+
+## Historial del repo (importante)
+
+- El 2026-09-01 se hizo **force-push** a `main`: todo el historial anterior quedó reemplazado por un único commit raíz (`95f491c`) con el mismo contenido. El trabajo previo está incluido en ese commit. Si una copia local tiene el historial viejo, `git merge` fallará con "unrelated histories": lo correcto es respaldar la rama y hacer `git reset --hard origin/main`, no un merge.
+- Rama local `respaldo-main-pre-forcepush` (solo en la PC de jennessevillalobos): copia del `main` previo al force-push.
+- Rama `desarrollo-sofi`: mockup de agenda alternativo de una compañera, no fusionado a `main` (tiene el historial viejo).
+- Antes de trabajar: `git fetch` y comparar con `origin/main` — el equipo (Leonardo, Sebastián) también empuja a `main`.
