@@ -103,8 +103,8 @@ function evaluacionesDeModulo(modulos: ModuloBuilder[]): EvaluacionBuilder[] {
 export default function EvaluacionesPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
-  const { cursos, modulosPorCurso, metaCursos, actualizarModulos } = useInstructorCourses();
-  const { intentos, calificarPregunta, publicarCalificacion } = useInstructorGrading();
+  const { cursos, modulosPorCurso, metaCursos, actualizarModulos, errorCursos } = useInstructorCourses();
+  const { intentos, calificarPregunta, publicarCalificacion, errorCalificacion } = useInstructorGrading();
 
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['evaluaciones'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
 
@@ -345,6 +345,10 @@ export default function EvaluacionesPage() {
         <h1 className="font-display text-2xl font-semibold text-ink">{t.titulo}</h1>
         <p className="text-sm text-ink/50">{t.subtitulo}</p>
       </div>
+
+      {(errorCalificacion || errorCursos) && (
+        <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCalificacion || errorCursos}</p>
+      )}
 
       <div className="flex gap-2 overflow-x-auto">
         <button onClick={() => setTab('editor')} className={`whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold ${tab === 'editor' ? 'border-transparent bg-brand-gradient text-white' : 'border-brand-200 text-ink/60 hover:bg-brand-50'}`}>
