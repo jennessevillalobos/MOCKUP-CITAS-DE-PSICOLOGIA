@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useRef, useEffect, useState } from 'react';
+import { useNavigate, Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft, ChevronUp, ChevronDown, PlayCircle, ClipboardCheck, Trash2, Upload,
   FileText, Headphones, X, Bold, Italic, Underline, List, ListOrdered, Link2, Image as ImageIcon,
@@ -8,7 +8,7 @@ import {
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import type { ModuloBuilder, ReglaDesbloqueo } from '@/data/courseBuilderData';
 import { useInstructorCourses } from '@/context/InstructorCoursesContext';
-import { CURSOS_META, CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
+import { CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
 
 const logo = '/src/assets/logos/1_(1).png';
 type Tab = 'clase' | 'datos';
@@ -16,7 +16,7 @@ type Tab = 'clase' | 'datos';
 const text = {
   es: {
     volver: 'Volver al panel', subtitulo: 'Constructor de cursos',
-    borrador: 'Borrador', publicado: 'Publicado', guardado: 'Guardado',
+    borrador: 'Borrador', publicado: 'Publicado', guardado: 'Guardado', guardando: 'Guardando…', errorGuardado: 'Error al guardar',
     vistaPrevia: 'Vista previa', publicar: 'Publicar',
     contenidoCurso: 'Contenido del curso', mod: 'mód.', clases: 'clases',
     reordenar: 'Usa las flechas para reordenar módulos y clases.',
@@ -48,7 +48,7 @@ const text = {
   },
   en: {
     volver: 'Back to panel', subtitulo: 'Course builder',
-    borrador: 'Draft', publicado: 'Published', guardado: 'Saved',
+    borrador: 'Draft', publicado: 'Published', guardado: 'Saved', guardando: 'Saving…', errorGuardado: 'Save failed',
     vistaPrevia: 'Preview', publicar: 'Publish',
     contenidoCurso: 'Course content', mod: 'mod.', clases: 'lessons',
     reordenar: 'Use the arrows to reorder modules and lessons.',
@@ -86,15 +86,28 @@ const reglas: { key: ReglaDesbloqueo; label: keyof typeof text.es; det: keyof ty
   { key: 'pago', label: 'reglaPago', det: 'reglaPagoDet' },
 ];
 
-let idSeq = 100;
 function nextId(prefix: string) {
-  idSeq += 1;
-  return `${prefix}${idSeq}`;
+  // Único entre recargas: con persistencia real, un contador que vuelve a
+  // empezar podría pisar módulos/clases ya guardados con el mismo id.
+  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 export default function ConstructorCursosPage() {
   const { cursoKey } = useParams<{ cursoKey: string }>();
   const key = cursoKey || 'manejo-ansiedad';
+  const navigate = useNavigate();
+  const { enBase, crearCurso } = useInstructorCourses();
+  const creando = useRef(false);
+
+  // Con la base, "+ Nuevo curso" crea el borrador real y abre su Constructor.
+  useEffect(() => {
+    if (key !== 'nuevo' || !enBase || creando.current) return;
+    creando.current = true;
+    void crearCurso().then((nuevaKey) => {
+      if (nuevaKey) navigate(`/instructor/constructor/${nuevaKey}`, { replace: true });
+    });
+  }, [key, enBase, crearCurso, navigate]);
+
   // key={key} fuerza el remontaje completo del editor al navegar entre
   // "Editar" de cursos distintos (o a "+ Nuevo curso"), así cada instancia
   // arranca con su propia selección de módulo/clase en vez de arrastrar la
@@ -105,16 +118,24 @@ export default function ConstructorCursosPage() {
 function ConstructorCursosInner({ cursoKey }: { cursoKey: string }) {
   const { language, setLanguage } = useSiteLanguage();
   const t = text[language];
-  const { cursos, modulosPorCurso, actualizarInfo, actualizarModulos } = useInstructorCourses();
+  const { cursos, modulosPorCurso, metaCursos, estadoGuardado, errorCursos, actualizarInfo, actualizarModulos } = useInstructorCourses();
 
   const info = cursos[cursoKey] ?? CURSOS_INFO_DEMO.nuevo;
   const modulos = modulosPorCurso[cursoKey] ?? [];
-  const meta = CURSOS_META.find((m) => m.key === cursoKey);
+  const meta = metaCursos.find((m) => m.key === cursoKey);
 
   const [tab, setTab] = useState<Tab>('clase');
   const [selModulo, setSelModulo] = useState<string | null>(modulos[0]?.id ?? null);
   const [selItem, setSelItem] = useState<string | null>(modulos[0]?.items[0]?.id ?? null);
   const [guardadoOk, setGuardadoOk] = useState(false);
+
+  // Con la base, los módulos llegan después del primer render: se selecciona el primero.
+  useEffect(() => {
+    if (selModulo === null && modulos.length > 0) {
+      setSelModulo(modulos[0].id);
+      setSelItem(modulos[0].items[0]?.id ?? null);
+    }
+  }, [modulos, selModulo]);
 
   function setModulos(updater: (ms: ModuloBuilder[]) => ModuloBuilder[]) {
     actualizarModulos(cursoKey, updater(modulos));
@@ -263,8 +284,11 @@ function ConstructorCursosInner({ cursoKey }: { cursoKey: string }) {
             >
               {info.estado === 'publicado' ? t.publicado : t.borrador}
             </span>
-            <span className="hidden items-center gap-1 text-xs text-ink/40 md:inline-flex">
-              <CheckCircle2 size={13} /> {t.guardado}
+            <span
+              title={errorCursos ?? undefined}
+              className={`hidden items-center gap-1 text-xs md:inline-flex ${estadoGuardado === 'error' ? 'text-rose-500' : 'text-ink/40'}`}
+            >
+              <CheckCircle2 size={13} /> {estadoGuardado === 'guardando' ? t.guardando : estadoGuardado === 'error' ? t.errorGuardado : t.guardado}
             </span>
             <button className="hidden rounded-full border border-brand-200 px-4 py-1.5 text-sm font-semibold text-ink hover:bg-brand-50 sm:inline-block">
               {t.vistaPrevia}

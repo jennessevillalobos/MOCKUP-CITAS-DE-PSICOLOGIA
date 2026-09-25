@@ -4,11 +4,11 @@ import PortalLayout from '@/components/site/PortalLayout';
 import { INSTRUCTOR_NAV_LABELS, buildInstructorNav } from '@/components/site/instructorNav';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useInstructorCourses } from '@/context/InstructorCoursesContext';
-import { CURSOS_META } from '@/data/instructorCoursesData';
 
 const text = {
   es: {
     volverPortal: 'Volver al panel',
+    cargando: 'Cargando tus cursos…',
     titulo: 'Mis cursos', subtitulo: 'Todos tus cursos — publicados y en borrador.',
     nuevoCurso: '+ Nuevo curso',
     totalCursos: 'Cursos', publicados: 'Publicados', borradores: 'Borradores', totalEstudiantes: 'Estudiantes',
@@ -17,6 +17,7 @@ const text = {
     editar: 'Editar', pasarBorrador: 'Pasar a borrador', publicarAccion: 'Publicar',
   },
   en: {
+    cargando: 'Loading your courses…',
     volverPortal: 'Back to panel',
     titulo: 'My courses', subtitulo: 'All your courses — published and drafts.',
     nuevoCurso: '+ New course',
@@ -30,13 +31,13 @@ const text = {
 export default function MisCursosPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
-  const { cursos, actualizarInfo } = useInstructorCourses();
+  const { cursos, actualizarInfo, metaCursos, cargando, errorCursos } = useInstructorCourses();
 
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['cursos'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
 
-  const publicados = CURSOS_META.filter((m) => cursos[m.key]?.estado === 'publicado').length;
-  const borradores = CURSOS_META.length - publicados;
-  const totalEstudiantes = CURSOS_META.reduce((acc, m) => acc + m.estudiantes, 0);
+  const publicados = metaCursos.filter((m) => cursos[m.key]?.estado === 'publicado').length;
+  const borradores = metaCursos.length - publicados;
+  const totalEstudiantes = metaCursos.reduce((acc, m) => acc + m.estudiantes, 0);
 
   function alternarEstado(key: string) {
     const actual = cursos[key]?.estado;
@@ -66,10 +67,13 @@ export default function MisCursosPage() {
         </Link>
       </div>
 
+      {cargando && <p className="text-sm text-ink/45">{t.cargando}</p>}
+      {errorCursos && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCursos}</p>}
+
       <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="rounded-2xl border border-brand-100 bg-white p-4">
           <div className="mb-1 flex items-center justify-between"><p className="text-xs text-ink/50">{t.totalCursos}</p><GraduationCap size={15} className="text-brand-500" /></div>
-          <p className="font-display text-2xl font-semibold text-ink">{CURSOS_META.length}</p>
+          <p className="font-display text-2xl font-semibold text-ink">{metaCursos.length}</p>
         </div>
         <div className="rounded-2xl border border-brand-100 bg-white p-4">
           <p className="text-xs text-ink/50">{t.publicados}</p>
@@ -86,7 +90,7 @@ export default function MisCursosPage() {
       </section>
 
       <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-        {CURSOS_META.map((meta) => {
+        {metaCursos.map((meta) => {
           const info = cursos[meta.key];
           if (!info) return null;
           const publicado = info.estado === 'publicado';
@@ -120,7 +124,7 @@ export default function MisCursosPage() {
 
                 <p className="text-xs text-ink/45">
                   {publicado ? (
-                    <>{meta.estudiantes} {t.estudiantes} · <Star size={11} className="mb-0.5 inline text-amber-500" /> {meta.rating}</>
+                    <>{meta.estudiantes} {t.estudiantes}{meta.rating > 0 && <> · <Star size={11} className="mb-0.5 inline text-amber-500" /> {meta.rating}</>}</>
                   ) : t.sinPublicar}
                 </p>
 

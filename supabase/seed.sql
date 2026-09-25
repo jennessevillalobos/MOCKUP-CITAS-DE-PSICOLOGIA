@@ -1,5 +1,5 @@
 -- Seed para desarrollo local. Solo usar en el ambiente `dev` de Supabase.
--- Antes de ejecutar, validá que las migraciones 001-012 ya están aplicadas.
+-- Antes de ejecutar, validá que las migraciones 001-016 ya están aplicadas.
 
 -- ── Monedas ──
 INSERT INTO public.monedas (codigo, nombre, simbolo, es_principal, estado) VALUES
@@ -183,3 +183,20 @@ CROSS JOIN (VALUES
   (5, TIME '09:00', TIME '17:00'),
   (6, TIME '09:00', TIME '13:00')
 ) AS d(dia, inicio, fin);
+
+-- ── Cursos de Dra. Ana Rivas (mismos 3 que CURSOS_INFO_DEMO en src/data/instructorCoursesData.ts) ──
+-- Precios en centavos. El contenido (módulos, clases y evaluaciones) se carga
+-- con public.guardar_estructura_curso(<id>, <MODULOS_POR_CURSO[slug]>) desde
+-- una sesión de la profesional, ya que la función corre con su RLS.
+UPDATE public.cursos SET profesional_id = 4, nombre = 'Manejo de la ansiedad',
+  descripcion = 'Aprende a reconocer, entender y calmar la ansiedad con técnicas prácticas basadas en evidencia.',
+  categoria = 'Bienestar', nivel = 'Principiante', idioma = 'Español', precio = 4900, moneda = 'USD', estado = 'publicado',
+  imagen = 'https://images.pexels.com/photos/8715971/pexels-photo-8715971.jpeg?auto=compress&cs=tinysrgb&h=600&w=800'
+WHERE slug = 'manejo-ansiedad';
+
+INSERT INTO public.cursos (profesional_id, nombre, slug, descripcion, categoria, nivel, idioma, precio, moneda, imagen, estado) VALUES
+ (4, 'Superar la ansiedad social', 'ansiedad-social', 'Estrategias prácticas para sentirte más cómodo en situaciones sociales, paso a paso.',
+  'Bienestar', 'Intermedio', 'Español', 5500, 'USD', 'https://images.pexels.com/photos/6567345/pexels-photo-6567345.jpeg?auto=compress&cs=tinysrgb&h=600&w=800', 'publicado'),
+ (4, 'Afrontar el duelo', 'afrontar-duelo', 'Un espacio para procesar la pérdida a tu propio ritmo, con acompañamiento profesional.',
+  'Bienestar', 'Principiante', 'Español', 4500, 'USD', NULL, 'borrador')
+ON CONFLICT (slug) DO NOTHING;

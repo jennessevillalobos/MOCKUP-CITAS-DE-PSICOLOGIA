@@ -10,7 +10,7 @@ import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
 import { useInstructorCourses } from '@/context/InstructorCoursesContext';
 import { useInstructorLiveClasses } from '@/context/InstructorLiveClassesContext';
 import { useInstructorGrading } from '@/context/InstructorGradingContext';
-import { CURSOS_META, CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
+import { CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
 import { HOY_VIVO } from '@/data/clasesVivoInstructorData';
 import { ACTIVIDAD_INSTRUCTOR } from '@/data/instructorPortalData';
 
@@ -66,14 +66,14 @@ export default function InstructorPage() {
 
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['dash'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
   const { citas, hoy } = useInstructorAgenda();
-  const { cursos, modulosPorCurso } = useInstructorCourses();
+  const { cursos, modulosPorCurso, metaCursos } = useInstructorCourses();
   const { clases } = useInstructorLiveClasses();
   const { intentos } = useInstructorGrading();
 
   const nombre = user?.nombre || 'Dra. Ana Rivas';
-  const publicados = CURSOS_META.filter((m) => cursos[m.key]?.estado === 'publicado').length;
-  const borradores = CURSOS_META.length - publicados;
-  const totalEstudiantes = CURSOS_META.reduce((acc, m) => acc + m.estudiantes, 0);
+  const publicados = metaCursos.filter((m) => cursos[m.key]?.estado === 'publicado').length;
+  const borradores = metaCursos.length - publicados;
+  const totalEstudiantes = metaCursos.reduce((acc, m) => acc + m.estudiantes, 0);
 
   const proximas = citas.filter((c) => c.estado === 'Programada').sort((a, b) => (a.fechaISO + a.hora).localeCompare(b.fechaISO + b.hora));
   const proximaCita = proximas[0] || null;
@@ -93,7 +93,7 @@ export default function InstructorPage() {
 
   const pendientesCalificar = intentos.filter((i) => i.estado === 'pendiente');
   function detalleIntento(cursoKey: string, moduloId: string, evaluacionId: string) {
-    const cursoTitulo = CURSOS_INFO_DEMO[cursoKey]?.titulo || cursoKey;
+    const cursoTitulo = cursos[cursoKey]?.titulo || CURSOS_INFO_DEMO[cursoKey]?.titulo || cursoKey;
     const modulos = modulosPorCurso[cursoKey] ?? [];
     const modulo = modulos.find((m) => m.id === moduloId);
     const evalItem = modulo?.items.find((it) => it.id === evaluacionId && it.tipo === 'evaluacion');
@@ -173,7 +173,7 @@ export default function InstructorPage() {
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
           <div className="mb-1 flex items-center justify-between"><p className="text-xs text-ink/50">{t.cursosLabel}</p><GraduationCap size={16} className="text-brand-500" /></div>
-          <p className="font-display text-2xl font-semibold text-ink">{CURSOS_META.length}</p>
+          <p className="font-display text-2xl font-semibold text-ink">{metaCursos.length}</p>
           <p className="text-xs text-ink/40">{publicados} {t.publicados} · {borradores} {t.borrador}</p>
         </div>
         <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
@@ -201,7 +201,7 @@ export default function InstructorPage() {
               <Link to="/instructor/cursos" className="text-sm font-semibold text-brand-600 hover:underline">{t.verTodos}</Link>
             </div>
             <div className="space-y-3">
-              {CURSOS_META.map((meta) => {
+              {metaCursos.map((meta) => {
                 const info = cursos[meta.key];
                 if (!info) return null;
                 const publicado = info.estado === 'publicado';

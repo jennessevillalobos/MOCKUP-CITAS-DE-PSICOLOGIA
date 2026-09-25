@@ -7,7 +7,7 @@ import { INSTRUCTOR_NAV_LABELS, buildInstructorNav } from '@/components/site/ins
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useInstructorCourses } from '@/context/InstructorCoursesContext';
 import { useInstructorGrading } from '@/context/InstructorGradingContext';
-import { CURSOS_META, CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
+import { CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
 import type { ModuloBuilder, EvaluacionBuilder, PreguntaEvaluacion, TipoPregunta, OpcionPregunta } from '@/data/courseBuilderData';
 import type { IntentoEvaluacion } from '@/data/evaluacionesInstructorData';
 
@@ -74,10 +74,10 @@ const text = {
   },
 } as const;
 
-let idSeq = 500;
 function nextId(prefix: string) {
-  idSeq += 1;
-  return `${prefix}${idSeq}`;
+  // Único entre recargas: con persistencia real, un contador que vuelve a
+  // empezar podría pisar módulos/clases ya guardados con el mismo id.
+  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 function preguntaVacia(tipo: TipoPregunta): PreguntaEvaluacion {
@@ -103,7 +103,7 @@ function evaluacionesDeModulo(modulos: ModuloBuilder[]): EvaluacionBuilder[] {
 export default function EvaluacionesPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
-  const { modulosPorCurso, actualizarModulos } = useInstructorCourses();
+  const { cursos, modulosPorCurso, metaCursos, actualizarModulos } = useInstructorCourses();
   const { intentos, calificarPregunta, publicarCalificacion } = useInstructorGrading();
 
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['evaluaciones'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
@@ -149,7 +149,7 @@ export default function EvaluacionesPage() {
   const totalPuntos = preguntasForm.reduce((acc, p) => acc + (Number.isFinite(p.puntaje) ? p.puntaje : 0), 0);
 
   function tituloCurso(key: string) {
-    return CURSOS_INFO_DEMO[key]?.titulo || key;
+    return cursos[key]?.titulo || CURSOS_INFO_DEMO[key]?.titulo || key;
   }
 
   function cambiarCurso(key: string) {
@@ -365,7 +365,7 @@ export default function EvaluacionesPage() {
           <div className="space-y-4 lg:col-span-2">
             <div className="flex flex-wrap gap-2">
               <select value={cursoKey} onChange={(e) => cambiarCurso(e.target.value)} className="focus-ring rounded-full border border-brand-200 px-3 py-2 text-sm text-ink">
-                {CURSOS_META.map((m) => <option key={m.key} value={m.key}>{tituloCurso(m.key)}</option>)}
+                {metaCursos.map((m) => <option key={m.key} value={m.key}>{tituloCurso(m.key)}</option>)}
               </select>
               <select value={moduloId} onChange={(e) => cambiarModulo(e.target.value)} className="focus-ring rounded-full border border-brand-200 px-3 py-2 text-sm text-ink">
                 {modulosCurso.map((m) => <option key={m.id} value={m.id}>{m.titulo}</option>)}
@@ -651,7 +651,7 @@ export default function EvaluacionesPage() {
                 onChange={(e) => { setRepCursoKey(e.target.value); setRepEvaluacionId(''); }}
                 className="focus-ring rounded-full border border-brand-200 px-3 py-2 text-sm text-ink"
               >
-                {CURSOS_META.map((m) => <option key={m.key} value={m.key}>{tituloCurso(m.key)}</option>)}
+                {metaCursos.map((m) => <option key={m.key} value={m.key}>{tituloCurso(m.key)}</option>)}
               </select>
               <select value={repEvaluacionId} onChange={(e) => setRepEvaluacionId(e.target.value)} className="focus-ring rounded-full border border-brand-200 px-3 py-2 text-sm text-ink">
                 <option value="">{t.evaluacionSel}: {t.evaluacionTodas}</option>
