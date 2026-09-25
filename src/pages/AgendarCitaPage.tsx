@@ -9,7 +9,7 @@ import SiteFooter from '@/components/site/SiteFooter';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
-import { bookAppointment } from '@/lib/api/edgeFunctions';
+import { bookAppointment, getAvailableSlots } from '@/lib/api/edgeFunctions';
 import { resolverIdsReserva } from '@/lib/api/catalog';
 import { SERVICIOS_PUBLICOS } from '@/data/servicesPageData';
 import { PROFESIONALES_PUBLICOS } from '@/data/professionalsPageData';
@@ -32,6 +32,7 @@ const text = {
     sinPreferencia: 'Sin preferencia', sinCostoReserva: 'Sin costo de reserva', canceleGratis: 'Cancela gratis hasta 24h antes',
     paso4Sub: 'Elige el día y la hora que prefieras.',
     sinCupos: 'No hay horarios disponibles ese día, elige otra fecha.',
+    cargandoHorarios: 'Consultando la agenda del profesional…',
     paso5Sub: 'Estos datos se usarán para confirmar tu cita.',
     nombreCompleto: 'Nombre completo', correo: 'Correo electrónico', telefono: 'Teléfono (opcional)',
     crearCuenta: 'Crear una cuenta para ver y gestionar esta cita desde tu Portal Paciente',
@@ -67,6 +68,7 @@ const text = {
     sinPreferencia: 'No preference', sinCostoReserva: 'No booking fee', canceleGratis: 'Free cancellation up to 24h before',
     paso4Sub: 'Choose the day and time you prefer.',
     sinCupos: 'No slots available that day, pick another date.',
+    cargandoHorarios: "Checking the professional's schedule…",
     paso5Sub: "We'll use this info to confirm your appointment.",
     nombreCompleto: 'Full name', correo: 'Email', telefono: 'Phone (optional)',
     crearCuenta: 'Create an account to view and manage this appointment from your Patient Portal',
@@ -93,12 +95,17 @@ const text = {
 const HORAS_COMPLETAS = ['09:00', '10:00', '11:00', '12:00', '14:00', '15:00', '16:00', '17:00'];
 const HORAS_SABADO = ['09:00', '10:00', '11:00', '12:00'];
 
+// YYYY-MM-DD en hora local (toISOString usa UTC y de noche adelanta un día).
+function fechaLocalISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function proximosDias(cantidad: number): string[] {
   const dias: string[] = [];
   const cursor = new Date();
   cursor.setDate(cursor.getDate() + 1); // empieza mañana
   while (dias.length < cantidad) {
-    if (cursor.getDay() !== 0) dias.push(cursor.toISOString().slice(0, 10)); // sin domingos
+    if (cursor.getDay() !== 0) dias.push(fechaLocalISO(cursor)); // sin domingos
     cursor.setDate(cursor.getDate() + 1);
   }
   return dias;
@@ -212,11 +219,55 @@ export default function AgendarCitaPage() {
   const modalidadesDisponibles: Modalidad[] = ['Online', 'Presencial'];
 
   const dias = useMemo(() => proximosDias(21), []);
+
+  // Con Supabase, los horarios salen de la agenda real del profesional
+  // (get-available-slots: horarios, excepciones, citas y bloqueos temporales).
+  // null = sin datos reales → se usan los horarios de demostración.
+  const [slotsReales, setSlotsReales] = useState<Record<string, string[]> | null>(null);
+  const [cargandoSlots, setCargandoSlots] = useState(false);
+
+  useEffect(() => {
+    if (!isRealAuth || !servicioKey || !profesionalKey || !modalidad) {
+      setSlotsReales(null);
+      return;
+    }
+    let cancelado = false;
+    setCargandoSlots(true);
+    (async () => {
+      const ids = await resolverIdsReserva({ servicioSlug: servicioKey, profesionalSlug: profesionalKey, modalidad });
+      const res = ids.error
+        ? null
+        : await getAvailableSlots({
+            profesional_id: ids.data.profesional_id,
+            servicio_id: ids.data.servicio_id,
+            modalidad_id: ids.data.modalidad_id,
+            fecha_inicio: dias[0],
+            fecha_fin: dias[dias.length - 1],
+          });
+      if (cancelado) return;
+      if (res && !res.error) {
+        const porDia: Record<string, string[]> = {};
+        for (const s of res.data.slots) porDia[s.fecha] = [...(porDia[s.fecha] ?? []), s.hora];
+        setSlotsReales(porDia);
+      } else {
+        setSlotsReales(null);
+      }
+      setCargandoSlots(false);
+    })();
+    return () => { cancelado = true; };
+  }, [isRealAuth, servicioKey, profesionalKey, modalidad, dias]);
+
+  // Si una hora guardada en el progreso ya no está libre, se descarta.
+  useEffect(() => {
+    if (slotsReales && fechaISO && hora && !(slotsReales[fechaISO] ?? []).includes(hora)) setHora(null);
+  }, [slotsReales, fechaISO, hora]);
+
   const horasDelDia = useMemo(() => {
     if (!fechaISO) return [];
+    if (slotsReales) return slotsReales[fechaISO] ?? [];
     const d = new Date(`${fechaISO}T00:00:00`);
     return d.getDay() === 6 ? HORAS_SABADO : HORAS_COMPLETAS;
-  }, [fechaISO]);
+  }, [fechaISO, slotsReales]);
   const horasDisponibles = useMemo(() => {
     if (!fechaISO || !profesional) return horasDelDia;
     return horasDelDia.filter(
@@ -494,14 +545,17 @@ export default function AgendarCitaPage() {
             {paso === 4 && (
               <div>
                 <p className="mb-5 text-center text-sm text-ink/55">{t.paso4Sub}</p>
+                {cargandoSlots && <p className="mb-3 text-center text-xs text-ink/45">{t.cargandoHorarios}</p>}
                 <div className="flex gap-2 overflow-x-auto pb-2">
                   {dias.map((f) => {
                     const seleccionado = f === fechaISO;
+                    const sinHorarios = slotsReales !== null && !(slotsReales[f]?.length);
                     return (
                       <button
                         key={f}
+                        disabled={sinHorarios}
                         onClick={() => { setFechaISO(f); setHora(null); }}
-                        className={`shrink-0 rounded-2xl border px-4 py-3 text-center text-xs font-semibold capitalize transition ${
+                        className={`shrink-0 rounded-2xl border px-4 py-3 text-center text-xs font-semibold capitalize transition disabled:cursor-not-allowed disabled:opacity-35 ${
                           seleccionado ? 'border-brand-500 bg-brand-gradient text-white shadow-soft' : 'border-brand-100 bg-white text-ink/60 hover:border-brand-300'
                         }`}
                       >

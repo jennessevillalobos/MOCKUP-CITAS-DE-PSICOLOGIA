@@ -45,11 +45,11 @@ El working tree en Windows usa CRLF, pero lo commiteado en `main` está en LF. E
 ## Limitaciones/pendientes conocidos (no son bugs, son alcance)
 
 1. El panel del profesional es una única cuenta demo compartida ("Dra. Ana Rivas") que muestra TODAS las citas reservadas sin filtrar por el profesional real de cada una — no hay login/identidad separada por profesional todavía.
-2. El wizard de `/agendar` no consulta los bloqueos/horario real de "Agenda/Disponibilidad" al ofrecer horarios — solo evita horas ya ocupadas por citas existentes.
+2. Con Supabase configurado, el paso "Fecha y hora" de `/agendar` usa `get-available-slots` (horarios reales de la tabla `horarios`, excepciones, citas y bloqueos). En modo demo sigue con horas fijas. La pantalla "Agenda/Disponibilidad" del instructor todavía guarda en `localStorage`, no en las tablas `horarios`/`excepciones_horario`.
 3. Los profesionales demo de la Agenda del admin (Dra. Valentina Ríos, Lic. Andrés Duarte, Lic. Sofía Herrera) no incluyen a "Dra. Ana Rivas" — inconsistencia previa sin corregir entre admin e instructor.
 4. "Notificaciones" del instructor usa una lista de demostración, no generada a partir de los Contexts reales.
 5. `profileTo` de `PortalLayout` aún no se extendió al Portal Paciente ni al Aula Virtual (solo el instructor lo usa).
-6. **Base sin profesionales ni horarios**: `profesionales`, `horarios`, `profesional_servicio` están vacías, así que `get-available-slots` devuelve `[]`. Los profesionales del frontend son datos demo en archivos `*Data.ts`.
+6. **Profesionales en la base**: los 6 de `PROFESIONALES_PUBLICOS` existen como cuentas de auth (correos `@psiqueamor.test`, sin contraseña) con rol `instructor`, identificados por `slug` = key del frontend. Nombre y foto se leen desde la vista `profesionales_publicos`. Horario cargado: L–V 9–17, sáb 9–13. El catálogo (9 servicios USD, sedes Caracas/Valencia) está igualado al frontend; si se cambia uno, cambiar ambos (y `supabase/seed.sql`).
 7. **Pagos reales**: faltan los secretos de Edge Functions (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID`, `PAYPAL_MODE`, `SITE_URL`) y registrar las URLs de webhook en Stripe/PayPal.
 8. **Descarga de libros**: el frontend (`createDownloadLink`) manda `compra_id` y espera `download_url`, pero la función `create-download-link` pide `producto_id` y devuelve `token`. Sin resolver.
 9. `submit-evaluation` no deduplica respuestas por pregunta (la nota puede pasar de 100). La política RLS de `calificaciones` permite a cualquier usuario autenticado insertar a nombre de otro.

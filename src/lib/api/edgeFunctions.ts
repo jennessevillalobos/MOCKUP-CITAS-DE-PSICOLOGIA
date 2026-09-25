@@ -7,7 +7,7 @@
 //
 // URL base: {VITE_SUPABASE_URL}/functions/v1/{nombre-función}
 
-import { getSupabaseClient, isSupabaseConfigured, SUPABASE_URL } from '@/lib/supabase/client';
+import { getSupabaseClient, isSupabaseConfigured, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '@/lib/supabase/client';
 import { ok, fail, type Result } from '@/lib/supabase/errors';
 
 // ─── Tipos de entrada y salida de cada Edge Function ─────────────────────────
@@ -77,15 +77,18 @@ async function getSessionToken(): Promise<string | null> {
   return data.session?.access_token ?? null;
 }
 
+// `publica`: la función no depende del usuario (ej. horarios disponibles), así que
+// sin sesión se autentica con la clave publicable en lugar del JWT de la sesión.
 async function callEdgeFunction<T>(
   functionName: string,
-  body: unknown
+  body: unknown,
+  { publica = false }: { publica?: boolean } = {}
 ): Promise<Result<T>> {
-  if (!isSupabaseConfigured() || !SUPABASE_URL) {
+  if (!isSupabaseConfigured() || !SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     return fail<T>({ code: 'supabase_not_configured', message: 'Supabase no está configurado.' });
   }
 
-  const token = await getSessionToken();
+  const token = (await getSessionToken()) ?? (publica ? SUPABASE_PUBLISHABLE_KEY : null);
   if (!token) {
     return fail<T>({ code: 'no_session', message: 'Debes iniciar sesión para continuar.' });
   }
@@ -98,6 +101,7 @@ async function callEdgeFunction<T>(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'apikey': SUPABASE_PUBLISHABLE_KEY,
         'Authorization': `Bearer ${token}`,
       },
       body: JSON.stringify(body),
@@ -136,7 +140,7 @@ async function callEdgeFunction<T>(
 export async function getAvailableSlots(
   input: GetAvailableSlotsInput
 ): Promise<Result<GetAvailableSlotsOutput>> {
-  return callEdgeFunction<GetAvailableSlotsOutput>('get-available-slots', input);
+  return callEdgeFunction<GetAvailableSlotsOutput>('get-available-slots', input, { publica: true });
 }
 
 /**
