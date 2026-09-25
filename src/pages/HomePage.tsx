@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { PROFESIONALES_PUBLICOS } from '@/data/professionalsPageData';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight, ArrowUpRight, Award, BookOpen, CalendarDays, Check, Clock3, Heart,
@@ -68,16 +69,17 @@ export default function HomePage() {
       if (!supabase) return; // Se queda con los mocks
 
       try {
-        const { data: profs } = await supabase.from('profesionales').select('especialidad, descripcion, usuarios(nombre, foto)').eq('estado', 'activo').limit(3);
+        // Vista pública (migración 012): nombre y foto sin exponer `usuarios`.
+        const { data: profs } = await supabase.from('profesionales_publicos').select('slug, nombre, foto, especialidad, descripcion').order('id').limit(3);
         if (profs && profs.length > 0) {
           setDbProfessionals(profs.map((p) => {
-            const usuario = (p as unknown as { usuarios?: { nombre: string | null; foto: string | null }[] | null }).usuarios?.[0];
+            const local = PROFESIONALES_PUBLICOS.find((l) => l.key === p.slug);
             return {
-              name: usuario?.nombre || 'Profesional',
+              name: p.nombre || 'Profesional',
               specialty: p.especialidad || 'Psicología',
               description: p.descripcion || '',
-              modality: 'Online y presencial',
-              image: usuario?.foto || images.professionalOne
+              modality: local?.modality.es ?? 'Online y presencial',
+              image: p.foto || images.professionalOne
             };
           }));
         }

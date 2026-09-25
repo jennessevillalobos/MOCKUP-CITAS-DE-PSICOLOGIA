@@ -4,6 +4,7 @@ import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
 import { PROFESIONALES_PUBLICOS } from '@/data/professionalsPageData';
+import { listProfesionalesPublicos } from '@/lib/api/catalog';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 
 const text = {
@@ -35,33 +36,24 @@ export default function ProfessionalsPage() {
 
   useEffect(() => {
     const fetchDbData = async () => {
-      const { getSupabaseClient } = await import('@/lib/supabase/client');
-      const supabase = getSupabaseClient();
-      if (!supabase) return;
+      // Profesionales activos de la base (vista pública, migración 012). Se cruzan
+      // por slug con PROFESIONALES_PUBLICOS para conservar los textos en inglés y
+      // que el enlace /profesionales/:slug siga resolviendo el perfil.
+      const res = await listProfesionalesPublicos();
+      if (res.error || res.data.length === 0) return;
 
-      try {
-        // Obtenemos todos los profesionales activos (y sus nombres/fotos de la tabla usuarios)
-        const { data: profs } = await supabase
-          .from('profesionales')
-          .select('id, especialidad, descripcion, usuarios(nombre, foto)')
-          .eq('estado', 'activo');
-
-        if (profs && profs.length > 0) {
-          setDbProfessionals(profs.map((p) => {
-            const usuario = (p as unknown as { usuarios?: { nombre: string | null; foto: string | null }[] | null }).usuarios?.[0];
-            return {
-              key: p.id.toString(), // o algún slug real si existiera
-              name: usuario?.nombre || 'Profesional',
-              specialty: { es: p.especialidad || 'Psicología', en: p.especialidad || 'Psychology' }, // TODO: i18n real DB
-              description: { es: p.descripcion || '', en: p.descripcion || '' },
-              modality: { es: 'Online y presencial', en: 'Online and in-person' },
-              image: usuario?.foto || PROFESIONALES_PUBLICOS[0].image,
-            };
-          }));
-        }
-      } catch (e) {
-        console.error('Error fetching data from Supabase:', e);
-      }
+      setDbProfessionals(res.data.map((p) => {
+        const local = PROFESIONALES_PUBLICOS.find((l) => l.key === p.slug);
+        if (local) return { ...local, name: p.nombre || local.name, image: p.foto || local.image };
+        return {
+          key: p.slug ?? String(p.id),
+          name: p.nombre || 'Profesional',
+          specialty: { es: p.especialidad || 'Psicología', en: p.especialidad || 'Psychology' },
+          description: { es: p.descripcion || '', en: p.descripcion || '' },
+          modality: { es: 'Online y presencial', en: 'Online and in-person' },
+          image: p.foto || PROFESIONALES_PUBLICOS[0].image,
+        };
+      }));
     };
     fetchDbData();
   }, []);

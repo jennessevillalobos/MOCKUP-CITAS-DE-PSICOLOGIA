@@ -351,6 +351,7 @@ export interface Database {
       lugares: {
         Row: {
           id: number;
+          slug: string | null;
           nombre: string;
           direccion: string | null;
           ciudad: string | null;
@@ -359,6 +360,7 @@ export interface Database {
           estado: string | null;
         };
         Insert: {
+          slug?: string | null;
           nombre: string;
           direccion?: string | null;
           ciudad?: string | null;
@@ -367,6 +369,7 @@ export interface Database {
           estado?: string | null;
         };
         Update: {
+          slug?: string | null;
           nombre?: string;
           direccion?: string | null;
           ciudad?: string | null;
@@ -619,18 +622,21 @@ export interface Database {
       profesionales: {
         Row: {
           id: number;
+          slug: string | null;
           usuario_id: string | null;
           especialidad: string | null;
           descripcion: string | null;
           estado: string | null;
         };
         Insert: {
+          slug?: string | null;
           usuario_id?: string | null;
           especialidad?: string | null;
           descripcion?: string | null;
           estado?: string | null;
         };
         Update: {
+          slug?: string | null;
           usuario_id?: string | null;
           especialidad?: string | null;
           descripcion?: string | null;
@@ -819,6 +825,19 @@ export interface Database {
           estado?: string | null;
           fecha_creacion?: string | null;
           ultimo_acceso?: string | null;
+        };
+      };
+    };
+    Views: {
+      // Migración 012: perfil público de profesionales activos (sin email ni teléfono).
+      profesionales_publicos: {
+        Row: {
+          id: number;
+          slug: string | null;
+          especialidad: string | null;
+          descripcion: string | null;
+          nombre: string | null;
+          foto: string | null;
         };
       };
     };

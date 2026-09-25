@@ -10,6 +10,7 @@ import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
 import { bookAppointment } from '@/lib/api/edgeFunctions';
+import { resolverIdsReserva } from '@/lib/api/catalog';
 import { SERVICIOS_PUBLICOS } from '@/data/servicesPageData';
 import { PROFESIONALES_PUBLICOS } from '@/data/professionalsPageData';
 import { SEDES } from '@/data/contactPageData';
@@ -267,17 +268,21 @@ export default function AgendarCitaPage() {
         await registerWithPassword(correo.trim(), contrasena, nombre.trim(), 'paciente');
       }
 
-      // IDs numéricos: en el wizard usamos datos estáticos, necesitamos el ID
-      // del servicio y profesional en la BD. Por ahora usamos el índice + 1
-      // como aproximación; el equipo deberá ajustar cuando haya IDs reales.
-      const servicioId = SERVICIOS_PUBLICOS.findIndex((s) => s.key === servicioKey) + 1;
-      const profesionalId = PROFESIONALES_PUBLICOS.findIndex((p) => p.key === profesionalKey) + 1;
-      const modalidadId = modalidad === 'Online' ? 1 : 2; // 1=virtual, 2=presencial
+      // Las keys del wizard se guardan como `slug` en la base.
+      const ids = await resolverIdsReserva({
+        servicioSlug: servicio.key,
+        profesionalSlug: profesional.key,
+        modalidad,
+        sedeSlug: sedeKey,
+      });
+      if (ids.error) {
+        setPagando(false);
+        setBookingError(ids.error.message);
+        return;
+      }
 
       const res = await bookAppointment({
-        servicio_id: servicioId,
-        profesional_id: profesionalId,
-        modalidad_id: modalidadId,
+        ...ids.data,
         fecha: fechaISO,
         hora: hora,
       });

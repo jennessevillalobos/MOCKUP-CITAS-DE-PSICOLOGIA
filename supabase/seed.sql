@@ -1,5 +1,5 @@
 -- Seed para desarrollo local. Solo usar en el ambiente `dev` de Supabase.
--- Antes de ejecutar, validá que las migraciones 001-003 ya están aplicadas.
+-- Antes de ejecutar, validá que las migraciones 001-012 ya están aplicadas.
 
 -- ── Monedas ──
 INSERT INTO public.monedas (codigo, nombre, simbolo, es_principal, estado) VALUES
@@ -21,34 +21,53 @@ INSERT INTO public.modalidades (id, nombre) VALUES
 ON CONFLICT (id) DO NOTHING;
 SELECT setval('public.modalidades_id_seq', (SELECT MAX(id) FROM public.modalidades));
 
--- ── Lugares ──
-INSERT INTO public.lugares (id, nombre, direccion, ciudad, contacto, estado) VALUES
-  (1, 'Consultorio Centro', 'Calle 50 #45-30', 'Bogotá', 'contacto@psiqueamor.com', 'activo'),
-  (2, 'Sede Virtual',       NULL,               'Online', 'virtual@psiqueamor.com',  'activo')
-ON CONFLICT (id) DO NOTHING;
+-- ── Lugares (mismas sedes que SEDES en src/data/contactPageData.ts) ──
+-- `slug` = key de la sede en el frontend (migración 012).
+INSERT INTO public.lugares (id, slug, nombre, direccion, ciudad, contacto, estado) VALUES
+  (1, 'caracas',  'Sede Caracas',  'Av. Principal, Torre A, Piso 5', 'Caracas',  NULL, 'activo'),
+  (2, 'valencia', 'Sede Valencia', 'C.C. Bienestar, Local 12',       'Valencia', NULL, 'activo')
+ON CONFLICT (id) DO UPDATE SET
+  slug = EXCLUDED.slug, nombre = EXCLUDED.nombre, direccion = EXCLUDED.direccion,
+  ciudad = EXCLUDED.ciudad, contacto = EXCLUDED.contacto, estado = EXCLUDED.estado;
 SELECT setval('public.lugares_id_seq', (SELECT MAX(id) FROM public.lugares));
 
--- ── Servicios ──
+-- ── Servicios (mismos 9 que SERVICIOS_PUBLICOS en src/data/servicesPageData.ts) ──
+-- `slug` = key del servicio en el frontend.
 INSERT INTO public.servicios (id, nombre, categoria, descripcion, slug, estado) VALUES
-  (1, 'Terapia Individual',       'Presencial', 'Sesión de terapia psicológica individual.', 'terapia-individual',       'activo'),
-  (2, 'Terapia de Pareja',        'Pareja',     'Sesión de terapia para parejas.',            'terapia-pareja',           'activo'),
-  (3, 'Orientación Vocacional',   'Adolescentes','Orientación profesional y académica.',      'orientacion-vocacional',   'activo'),
-  (4, 'Terapia Infantil',         'Infantil',   'Terapia especializada para niños.',          'terapia-infantil',         'activo')
-ON CONFLICT (id) DO NOTHING;
+  (1, 'Terapia individual',        'individual',  'Sesiones personalizadas para ansiedad, estrés y crecimiento personal.',          'individual',   'activo'),
+  (2, 'Terapia de pareja',         'pareja',      'Herramientas para mejorar la comunicación y reconstruir vínculos.',             'pareja',       'activo'),
+  (3, 'Terapia infantil',          'infantil',    'Apoyo emocional para niñas y niños con enfoque lúdico y cálido.',              'infantil',     'activo'),
+  (4, 'Orientación vocacional',    'orientacion', 'Descubre tu camino profesional con evaluación y acompañamiento.',              'orientacion',  'activo'),
+  (5, 'Terapia familiar',          'pareja',      'Sesiones con el sistema familiar para resolver conflictos y fortalecer lazos.', 'familiar',     'activo'),
+  (6, 'Manejo de ansiedad',        'individual',  'Programa enfocado en técnicas para reducir la ansiedad y el estrés.',          'ansiedad',     'activo'),
+  (7, 'Acompañamiento en duelo',   'individual',  'Espacio seguro para transitar la pérdida a tu ritmo.',                          'duelo',        'activo'),
+  (8, 'Evaluación psicológica',    'orientacion', 'Valoración inicial con informe y plan de trabajo personalizado.',              'evaluacion',   'activo'),
+  (9, 'Terapia para adolescentes', 'infantil',    'Acompañamiento para adolescentes en etapas de cambio.',                         'adolescentes', 'activo')
+ON CONFLICT (id) DO UPDATE SET
+  nombre = EXCLUDED.nombre, categoria = EXCLUDED.categoria, descripcion = EXCLUDED.descripcion,
+  slug = EXCLUDED.slug, estado = EXCLUDED.estado;
 SELECT setval('public.servicios_id_seq', (SELECT MAX(id) FROM public.servicios));
 
--- ── Servicio / modalidad con precios y duraciones ──
-INSERT INTO public.servicio_modalidad (servicio_id, modalidad_id, duracion_minutos, precio, moneda) VALUES
-  (1, 1, 50, 50000, 'COP'),
-  (1, 2, 50, 45000, 'COP'),
-  (1, 3, 60, 60000, 'COP'),
-  (2, 1, 60, 70000, 'COP'),
-  (2, 2, 60, 65000, 'COP'),
-  (3, 1, 45, 40000, 'COP'),
-  (3, 2, 45, 35000, 'COP'),
-  (4, 1, 40, 45000, 'COP'),
-  (4, 2, 40, 40000, 'COP')
-ON CONFLICT (id) DO NOTHING;
+-- ── Servicio / modalidad: precio (centavos USD) y duración del frontend ──
+-- El wizard /agendar deja elegir Online o Presencial para cualquier servicio,
+-- así que cada servicio tiene ambas modalidades (presencial y virtual).
+DELETE FROM public.servicio_modalidad;
+INSERT INTO public.servicio_modalidad (servicio_id, modalidad_id, duracion_minutos, precio, moneda)
+SELECT s.id, m.id, v.duracion, v.precio, 'USD'
+FROM (VALUES
+  ('individual',   50,  5000),
+  ('pareja',       75,  8500),
+  ('infantil',     45,  5500),
+  ('orientacion',  60,  5000),
+  ('familiar',     90, 11000),
+  ('ansiedad',     60,  6500),
+  ('duelo',        60,  6000),
+  ('evaluacion',   50,  4500),
+  ('adolescentes', 50,  5800)
+) AS v(slug, duracion, precio)
+JOIN public.servicios s ON s.slug = v.slug
+CROSS JOIN public.modalidades m
+WHERE m.nombre IN ('presencial', 'virtual');
 
 -- ── Cursos ──
 INSERT INTO public.cursos (id, nombre, slug, descripcion, precio, moneda, estado) VALUES
@@ -81,3 +100,86 @@ INSERT INTO public.productos_digitales (id, tipo, titulo, slug, descripcion, pre
   (3, 'video',    'Taller: técnicas de respiración','taller-respiracion',   'Video taller de 30 minutos.',        8000,  'COP', 'activo')
 ON CONFLICT (id) DO NOTHING;
 SELECT setval('public.productos_digitales_id_seq', (SELECT MAX(id) FROM public.productos_digitales));
+
+-- ── Profesionales (mismos 6 que PROFESIONALES_PUBLICOS en src/data/professionalsPageData.ts) ──
+-- Cada profesional tiene una cuenta en auth.users sin contraseña (se asigna con
+-- "Recuperar contraseña" o desde el dashboard). El trigger on_auth_user_created
+-- crea su fila en public.usuarios con el nombre de raw_user_meta_data.full_name.
+-- Correos @psiqueamor.test: dominio reservado que no envía correo real; cambiarlos
+-- por los reales antes de producción.
+WITH datos(id, nombre, email) AS (VALUES
+  ('a1000000-0000-4000-8000-000000000001'::uuid, 'Laura Méndez',     'laura.mendez@psiqueamor.test'),
+  ('a1000000-0000-4000-8000-000000000002'::uuid, 'Valentina Ríos',   'valentina.rios@psiqueamor.test'),
+  ('a1000000-0000-4000-8000-000000000003'::uuid, 'Sofía Herrera',    'sofia.herrera@psiqueamor.test'),
+  ('a1000000-0000-4000-8000-000000000004'::uuid, 'Dra. Ana Rivas',   'ana.rivas@psiqueamor.test'),
+  ('a1000000-0000-4000-8000-000000000005'::uuid, 'Lic. Carlos Mora', 'carlos.mora@psiqueamor.test'),
+  ('a1000000-0000-4000-8000-000000000006'::uuid, 'Dra. Lucía Peña',  'lucia.pena@psiqueamor.test')
+),
+nuevos_auth AS (
+  INSERT INTO auth.users (
+    instance_id, id, aud, role, email, email_confirmed_at,
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+    confirmation_token, recovery_token, email_change_token_new, email_change
+  )
+  SELECT '00000000-0000-0000-0000-000000000000', d.id, 'authenticated', 'authenticated', d.email, NOW(),
+         '{"provider":"email","providers":["email"]}'::jsonb, jsonb_build_object('full_name', d.nombre), NOW(), NOW(),
+         '', '', '', ''
+  FROM datos d
+  ON CONFLICT (id) DO NOTHING
+  RETURNING id, email
+)
+INSERT INTO auth.identities (provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at)
+SELECT n.id::text, n.id, jsonb_build_object('sub', n.id::text, 'email', n.email, 'email_verified', true), 'email', NOW(), NOW(), NOW()
+FROM nuevos_auth n;
+
+UPDATE public.usuarios u SET nombre = d.nombre, foto = d.foto
+FROM (VALUES
+  ('a1000000-0000-4000-8000-000000000001'::uuid, 'Laura Méndez',     'https://images.pexels.com/photos/4098357/pexels-photo-4098357.jpeg?auto=compress&cs=tinysrgb&h=1000&w=800'),
+  ('a1000000-0000-4000-8000-000000000002'::uuid, 'Valentina Ríos',   'https://images.pexels.com/photos/36439572/pexels-photo-36439572.jpeg?auto=compress&cs=tinysrgb&h=1000&w=800'),
+  ('a1000000-0000-4000-8000-000000000003'::uuid, 'Sofía Herrera',    'https://images.pexels.com/photos/3958409/pexels-photo-3958409.jpeg?auto=compress&cs=tinysrgb&h=1000&w=800'),
+  ('a1000000-0000-4000-8000-000000000004'::uuid, 'Dra. Ana Rivas',   'https://images.pexels.com/photos/7579108/pexels-photo-7579108.jpeg?auto=compress&cs=tinysrgb&h=1000&w=800'),
+  ('a1000000-0000-4000-8000-000000000005'::uuid, 'Lic. Carlos Mora', 'https://images.pexels.com/photos/15960478/pexels-photo-15960478.jpeg?auto=compress&cs=tinysrgb&h=1000&w=800'),
+  ('a1000000-0000-4000-8000-000000000006'::uuid, 'Dra. Lucía Peña',  'https://images.pexels.com/photos/7579119/pexels-photo-7579119.jpeg?auto=compress&cs=tinysrgb&h=1000&w=800')
+) AS d(id, nombre, foto)
+WHERE u.id = d.id;
+
+INSERT INTO public.profesionales (id, usuario_id, slug, especialidad, descripcion, estado) VALUES
+  (1, 'a1000000-0000-4000-8000-000000000001', 'laura-mendez',   'Psicología clínica',  'Un espacio para comprenderte con calma.',                        'activo'),
+  (2, 'a1000000-0000-4000-8000-000000000002', 'valentina-rios', 'Parejas y vínculos',  'Conversaciones que abren nuevas posibilidades.',                 'activo'),
+  (3, 'a1000000-0000-4000-8000-000000000003', 'sofia-herrera',  'Bienestar emocional', 'Herramientas para volver a ti.',                                 'activo'),
+  (4, 'a1000000-0000-4000-8000-000000000004', 'ana-rivas',      'Ansiedad y estrés',   'Herramientas prácticas para manejar la ansiedad del día a día.', 'activo'),
+  (5, 'a1000000-0000-4000-8000-000000000005', 'carlos-mora',    'Terapia de pareja',   'Acompañamiento para fortalecer la comunicación en pareja.',      'activo'),
+  (6, 'a1000000-0000-4000-8000-000000000006', 'lucia-pena',     'Terapia infantil',    'Un enfoque cálido y lúdico para el bienestar de niñas y niños.', 'activo')
+ON CONFLICT (id) DO UPDATE SET
+  usuario_id = EXCLUDED.usuario_id, slug = EXCLUDED.slug, especialidad = EXCLUDED.especialidad,
+  descripcion = EXCLUDED.descripcion, estado = EXCLUDED.estado;
+SELECT setval('public.profesionales_id_seq', (SELECT MAX(id) FROM public.profesionales));
+
+INSERT INTO public.usuario_roles (usuario_id, rol_id)
+SELECT p.usuario_id, r.id FROM public.profesionales p CROSS JOIN public.roles r
+WHERE p.usuario_id IS NOT NULL AND r.nombre = 'instructor'
+ON CONFLICT DO NOTHING;
+
+-- El wizard /agendar ofrece a todos los profesionales para cualquier servicio y sede.
+INSERT INTO public.profesional_servicio (profesional_id, servicio_id)
+SELECT p.id, s.id FROM public.profesionales p CROSS JOIN public.servicios s
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.profesional_lugar (profesional_id, lugar_id)
+SELECT p.id, l.id FROM public.profesionales p CROSS JOIN public.lugares l
+ON CONFLICT DO NOTHING;
+
+-- ── Horarios: el HORARIO_SEMANAL_DEMO del panel del profesional ──
+-- Lunes a viernes 09:00–17:00, sábado 09:00–13:00 (dia_semana: 0 = domingo).
+DELETE FROM public.horarios WHERE profesional_id IN (SELECT id FROM public.profesionales);
+INSERT INTO public.horarios (profesional_id, dia_semana, hora_inicio, hora_fin)
+SELECT p.id, d.dia, d.inicio, d.fin
+FROM public.profesionales p
+CROSS JOIN (VALUES
+  (1, TIME '09:00', TIME '17:00'),
+  (2, TIME '09:00', TIME '17:00'),
+  (3, TIME '09:00', TIME '17:00'),
+  (4, TIME '09:00', TIME '17:00'),
+  (5, TIME '09:00', TIME '17:00'),
+  (6, TIME '09:00', TIME '13:00')
+) AS d(dia, inicio, fin);
