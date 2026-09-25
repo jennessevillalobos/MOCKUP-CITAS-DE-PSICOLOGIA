@@ -1,6 +1,10 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
-import { signIn as supabaseSignIn, signUp as supabaseSignUp, signOut as supabaseSignOut, getRoles, ensureRole } from '@/lib/api/auth';
+import { signIn as supabaseSignIn, signUp as supabaseSignUp, signOut as supabaseSignOut, ensureRole } from '@/lib/api/auth';
+import {
+  cargarPerfil, guardarPerfil, subirFotoPerfil, cambiarContrasena as cambiarContrasenaApi, cerrarTodasLasSesiones,
+  type PerfilReal, type PreferenciasUsuario,
+} from '@/lib/api/perfil';
 import { toServiceError, type Result } from '@/lib/supabase/errors';
 import type { RolNombre } from '@/lib/supabase/types';
 
@@ -13,7 +17,25 @@ export interface SiteUser {
   // Campos opcionales de "Mi perfil" — no todos los usuarios los llenan.
   telefono?: string;
   sobreMi?: string;
-  foto?: string; // data URL de la foto subida (sin backend real, se guarda en localStorage)
+  foto?: string; // URL pública (sesión real) o data URL de la foto subida (modo demo, en localStorage)
+  preferencias?: PreferenciasUsuario;
+}
+
+function nombreDesdeCorreo(correo: string) {
+  return correo.split('@')[0].split(/[._-]/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+// SiteUser a partir del perfil guardado en la base (nombre y rol reales).
+function usuarioDesdePerfil(perfil: PerfilReal): SiteUser {
+  return {
+    nombre: perfil.nombre || nombreDesdeCorreo(perfil.correo),
+    correo: perfil.correo,
+    rol: perfil.esProfesional ? 'profesional' : 'paciente',
+    telefono: perfil.telefono ?? undefined,
+    sobreMi: perfil.sobreMi ?? undefined,
+    foto: perfil.foto ?? undefined,
+    preferencias: perfil.preferencias,
+  };
 }
 
 // Mapeo entre el rol seleccionado en la UI y el rol real de la base de datos.
@@ -45,7 +67,12 @@ interface SiteAuthContextValue {
   registerWithPassword: (correo: string, password: string, nombre?: string, rol?: SiteRole) => Promise<Result<{ user: SiteUser; needsEmailConfirmation: boolean }>>;
   logout: () => void;
   // Actualiza campos del perfil de la sesión activa (Mi perfil). No cambia el rol.
-  updateProfile: (fields: Partial<Omit<SiteUser, 'rol'>>) => void;
+  // Con sesión real también los guarda en la base; devuelve el error si falla.
+  updateProfile: (fields: Partial<Omit<SiteUser, 'rol'>>) => Promise<{ error: string | null }>;
+  // true si la sesión actual es una cuenta real de Supabase (no demo).
+  esSesionReal: boolean;
+  cambiarContrasena: (actual: string, nueva: string) => Promise<{ error: string | null }>;
+  cerrarOtrasSesiones: () => Promise<{ error: string | null }>;
 }
 
 const SiteAuthContext = createContext<SiteAuthContextValue | undefined>(undefined);
@@ -67,6 +94,9 @@ function readStoredUser(): SiteUser | null {
 export function SiteAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SiteUser | null>(() => readStoredUser());
   const realAuth = isSupabaseConfigured();
+  // Ids del perfil real (usuario y ficha de profesional) para escribir en la base.
+  const perfilRef = useRef<PerfilReal | null>(null);
+  const [esSesionReal, setEsSesionReal] = useState(false);
 
   const persist = useCallback((next: SiteUser | null) => {
     setUser(next);
@@ -78,23 +108,37 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Si hay una sesión real de Supabase (p. ej. al refrescar la página), se
-  // refleja en el estado local. En modo demo no se hace nada.
+  // Lee el perfil real (nombre, rol, foto…) desde la base y lo refleja en la sesión.
+  const sincronizarPerfil = useCallback(async (): Promise<SiteUser | null> => {
+    const res = await cargarPerfil();
+    if (res.error || !res.data) return null;
+    perfilRef.current = res.data;
+    setEsSesionReal(true);
+    const next = usuarioDesdePerfil(res.data);
+    persist(next);
+    return next;
+  }, [persist]);
+
+  // Si hay una sesión real de Supabase (p. ej. al refrescar la página), el
+  // perfil y el rol salen de la base. En modo demo no se hace nada.
   useEffect(() => {
     if (!realAuth) return;
     const supabase = getSupabaseClient();
     if (!supabase) return;
 
     supabase.auth.getSession().then(({ data }) => {
-      const sessionUser = data.session?.user;
-      if (sessionUser?.email && !readStoredUser()) {
-        const nombre =
-          (sessionUser.user_metadata?.full_name as string | undefined) ??
-          sessionUser.email.split('@')[0];
-        setUser({ nombre, correo: sessionUser.email, rol: 'paciente' });
+      if (data.session) void sincronizarPerfil();
+    });
+    // Cierre de sesión desde otro dispositivo ("Cerrar todas las sesiones").
+    const { data: sub } = supabase.auth.onAuthStateChange((evento) => {
+      if (evento === 'SIGNED_OUT' && perfilRef.current) {
+        perfilRef.current = null;
+        setEsSesionReal(false);
+        persist(null);
       }
     });
-  }, [realAuth]);
+    return () => sub.subscription.unsubscribe();
+  }, [realAuth, sincronizarPerfil, persist]);
 
   const login = useCallback(
     (correo: string, rol: SiteRole, nombre?: string) => {
@@ -130,20 +174,15 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
       const res = await supabaseSignIn({ email: correo, password });
       if (res.error) return res;
 
-      const nombre = correo.split('@')[0].split(/[._-]/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      const desdeBase = await sincronizarPerfil();
+      if (desdeBase) return { data: desdeBase, error: null };
 
-      let rol: SiteRole = 'paciente';
-      const roles = await getRoles();
-      if (!roles.error && roles.data) {
-        if (roles.data.includes('instructor')) rol = 'profesional';
-        else if (roles.data.includes('administrador')) rol = 'profesional';
-      }
-
-      const next: SiteUser = { nombre, correo: res.data.email, rol };
+      // Sin perfil legible (no debería pasar): se entra como paciente con el nombre del correo.
+      const next: SiteUser = { nombre: nombreDesdeCorreo(correo), correo: res.data.email, rol: 'paciente' };
       persist(next);
       return { data: next, error: null };
     },
-    [persist]
+    [persist, sincronizarPerfil]
   );
 
   const registerWithPassword = useCallback(
@@ -176,6 +215,8 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    perfilRef.current = null;
+    setEsSesionReal(false);
     persist(null);
     // En modo real también se cierra la sesión de Supabase; si falla no se
     // bloquea el cierre local.
@@ -185,10 +226,23 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
   }, [persist, realAuth]);
 
   const updateProfile = useCallback(
-    (fields: Partial<Omit<SiteUser, 'rol'>>) => {
+    async (fields: Partial<Omit<SiteUser, 'rol'>>): Promise<{ error: string | null }> => {
+      const cambios = { ...fields };
+      const perfil = perfilRef.current;
+      if (perfil) {
+        // El correo de la cuenta no se cambia desde aquí (requiere confirmación por email).
+        delete cambios.correo;
+        if (cambios.foto?.startsWith('data:')) {
+          const subida = await subirFotoPerfil(perfil.userId, cambios.foto);
+          if (subida.error) return { error: subida.error.message };
+          cambios.foto = subida.data;
+        }
+        const res = await guardarPerfil(perfil, cambios);
+        if (res.error) return { error: res.error.message };
+      }
       setUser((prev) => {
         if (!prev) return prev;
-        const next: SiteUser = { ...prev, ...fields };
+        const next: SiteUser = { ...prev, ...cambios };
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
         } catch {
@@ -196,12 +250,31 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
         }
         return next;
       });
+      return { error: null };
     },
     []
   );
 
+  const cambiarContrasena = useCallback(async (actual: string, nueva: string) => {
+    const perfil = perfilRef.current;
+    if (!perfil) return { error: null }; // modo demo: no hay contraseña real que cambiar
+    const res = await cambiarContrasenaApi(perfil.correo, actual, nueva);
+    return { error: res.error?.message ?? null };
+  }, []);
+
+  const cerrarOtrasSesiones = useCallback(async () => {
+    if (!perfilRef.current) return { error: null };
+    const res = await cerrarTodasLasSesiones();
+    return { error: res.error?.message ?? null };
+  }, []);
+
   return (
-    <SiteAuthContext.Provider value={{ user, isRealAuth: realAuth, login, loginAs, loginWithPassword, registerWithPassword, logout, updateProfile }}>
+    <SiteAuthContext.Provider
+      value={{
+        user, isRealAuth: realAuth, login, loginAs, loginWithPassword, registerWithPassword, logout, updateProfile,
+        esSesionReal, cambiarContrasena, cerrarOtrasSesiones,
+      }}
+    >
       {children}
     </SiteAuthContext.Provider>
   );

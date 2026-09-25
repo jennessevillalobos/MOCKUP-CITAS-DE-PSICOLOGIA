@@ -6,7 +6,7 @@ import PortalLayout from '@/components/site/PortalLayout';
 import { INSTRUCTOR_NAV_LABELS, buildInstructorNav } from '@/components/site/instructorNav';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
-import { AGENDA_INSTRUCTOR_HOY, type CitaInstructor } from '@/data/citasInstructorData';
+import { type CitaInstructor } from '@/data/citasInstructorData';
 import type { CitaEstado } from '@/data/admin/agendaData';
 
 type Tab = 'proximas' | 'canceladas' | 'realizadas';
@@ -15,6 +15,7 @@ type Vista = 'lista' | 'historial';
 const text = {
   es: {
     volverPortal: 'Volver al panel',
+    cargandoCitas: 'Cargando tus citas…',
     titulo: 'Mis citas', subtitulo: 'Todas tus citas agendadas, canceladas y realizadas, con el historial de cada paciente.',
     hoy: 'Hoy', estaSemana: 'Esta semana', canceladas: 'Canceladas', realizadas: 'Realizadas',
     tabProximas: 'Próximas', tabCanceladas: 'Canceladas', tabRealizadas: 'Realizadas',
@@ -32,6 +33,7 @@ const text = {
   },
   en: {
     volverPortal: 'Back to panel',
+    cargandoCitas: 'Loading your appointments…',
     titulo: 'My appointments', subtitulo: 'All your scheduled, cancelled and completed appointments, with each patient\'s history.',
     hoy: 'Today', estaSemana: 'This week', canceladas: 'Cancelled', realizadas: 'Completed',
     tabProximas: 'Upcoming', tabCanceladas: 'Cancelled', tabRealizadas: 'Completed',
@@ -74,7 +76,7 @@ function diffDias(fechaISO: string, base: string) {
 export default function MisCitasPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
-  const { citas, notas, reagendarCita, cambiarEstado, actualizarNotaSesion, agregarNotaPaciente } = useInstructorAgenda();
+  const { citas, notas, hoy, errorCitas, cargando, reagendarCita, cambiarEstado, actualizarNotaSesion, agregarNotaPaciente } = useInstructorAgenda();
 
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['citas'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
 
@@ -104,9 +106,9 @@ export default function MisCitasPage() {
     [citas]
   );
 
-  const citasHoy = proximas.filter((c) => c.fechaISO === AGENDA_INSTRUCTOR_HOY).length;
+  const citasHoy = proximas.filter((c) => c.fechaISO === hoy).length;
   const citasSemana = proximas.filter((c) => {
-    const d = diffDias(c.fechaISO, AGENDA_INSTRUCTOR_HOY);
+    const d = diffDias(c.fechaISO, hoy);
     return d >= 0 && d <= 6;
   }).length;
 
@@ -258,6 +260,11 @@ export default function MisCitasPage() {
             <h1 className="font-display text-2xl font-semibold text-ink">{t.titulo}</h1>
             <p className="text-sm text-ink/50">{t.subtitulo}</p>
           </div>
+
+          {cargando && <p className="text-sm text-ink/45">{t.cargandoCitas}</p>}
+          {errorCitas && (
+            <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCitas}</p>
+          )}
 
           <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="rounded-2xl border border-brand-100 bg-white p-4">

@@ -10,7 +10,6 @@ import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
 import { useInstructorCourses } from '@/context/InstructorCoursesContext';
 import { useInstructorLiveClasses } from '@/context/InstructorLiveClassesContext';
 import { useInstructorGrading } from '@/context/InstructorGradingContext';
-import { AGENDA_INSTRUCTOR_HOY } from '@/data/citasInstructorData';
 import { CURSOS_META, CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
 import { HOY_VIVO } from '@/data/clasesVivoInstructorData';
 import { ACTIVIDAD_INSTRUCTOR } from '@/data/instructorPortalData';
@@ -66,7 +65,7 @@ export default function InstructorPage() {
   const t = text[language];
 
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['dash'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
-  const { citas } = useInstructorAgenda();
+  const { citas, hoy } = useInstructorAgenda();
   const { cursos, modulosPorCurso } = useInstructorCourses();
   const { clases } = useInstructorLiveClasses();
   const { intentos } = useInstructorGrading();
@@ -78,9 +77,9 @@ export default function InstructorPage() {
 
   const proximas = citas.filter((c) => c.estado === 'Programada').sort((a, b) => (a.fechaISO + a.hora).localeCompare(b.fechaISO + b.hora));
   const proximaCita = proximas[0] || null;
-  const citasHoy = proximas.filter((c) => c.fechaISO === AGENDA_INSTRUCTOR_HOY).length;
+  const citasHoy = proximas.filter((c) => c.fechaISO === hoy).length;
   const citasSemana = proximas.filter((c) => {
-    const d = diffDias(c.fechaISO, AGENDA_INSTRUCTOR_HOY);
+    const d = diffDias(c.fechaISO, hoy);
     return d >= 0 && d <= 6;
   }).length;
 
@@ -144,7 +143,7 @@ export default function InstructorPage() {
             {proximaCita ? (
               <>
                 <p className="truncate font-display text-lg font-semibold text-white">
-                  {proximaCita.paciente} · {proximaCita.fechaISO === AGENDA_INSTRUCTOR_HOY ? t.hoyLabel : proximaCita.fechaISO} {proximaCita.hora}
+                  {proximaCita.paciente} · {proximaCita.fechaISO === hoy ? t.hoyLabel : proximaCita.fechaISO} {proximaCita.hora}
                 </p>
                 <p className="flex items-center gap-1.5 text-sm text-white/85">
                   {proximaCita.modalidad === 'Online' ? <Video size={13} /> : <MapPin size={13} />}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ChevronLeft, ChevronRight, Lock, Trash2, Check, AlertTriangle, X, CalendarClock,
 } from 'lucide-react';
@@ -7,7 +7,7 @@ import { INSTRUCTOR_NAV_LABELS, buildInstructorNav } from '@/components/site/ins
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useInstructorSchedule } from '@/context/InstructorScheduleContext';
 import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
-import { AGENDA_INSTRUCTOR_HOY, type CitaInstructor } from '@/data/citasInstructorData';
+import { type CitaInstructor } from '@/data/citasInstructorData';
 import {
   DIAS_SEMANA, DIA_LABEL, type DiaSemana, type BloqueoAgenda, type TipoBloqueo,
 } from '@/data/agendaDisponibilidadInstructorData';
@@ -154,7 +154,7 @@ export default function AgendaDisponibilidadPage() {
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['agenda'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
 
   const { horarioSemanal, configSesiones, bloqueos, enBase, errorAgenda, actualizarDia, actualizarConfigSesiones, guardarHorario, agregarBloqueo, quitarBloqueo } = useInstructorSchedule();
-  const { citas, reagendarCita, cambiarEstado } = useInstructorAgenda();
+  const { citas, hoy, reagendarCita, cambiarEstado } = useInstructorAgenda();
 
   const [tab, setTab] = useState<Tab>('semanal');
   const [guardadoOk, setGuardadoOk] = useState(false);
@@ -170,10 +170,10 @@ export default function AgendaDisponibilidadPage() {
   const diasLaborables = DIAS_SEMANA.filter((d) => horarioSemanal[d].activo).length;
   const horasDisponibles = DIAS_SEMANA.reduce((acc, d) => acc + (horarioSemanal[d].activo ? horasEntre(horarioSemanal[d].inicio, horarioSemanal[d].fin) : 0), 0);
   const bloqueosFuturos = [...bloqueos]
-    .filter((b) => (b.fechaFin ?? b.fechaInicio) >= AGENDA_INSTRUCTOR_HOY)
+    .filter((b) => (b.fechaFin ?? b.fechaInicio) >= hoy)
     .sort((a, b) => a.fechaInicio.localeCompare(b.fechaInicio));
   const proximoBloqueo = bloqueosFuturos[0] ?? null;
-  const citasEstaSemana = citas.filter((c) => c.estado === 'Programada' && diffDias(c.fechaISO, AGENDA_INSTRUCTOR_HOY) >= 0 && diffDias(c.fechaISO, AGENDA_INSTRUCTOR_HOY) <= 6).length;
+  const citasEstaSemana = citas.filter((c) => c.estado === 'Programada' && diffDias(c.fechaISO, hoy) >= 0 && diffDias(c.fechaISO, hoy) <= 6).length;
 
   function etiquetaBloqueo(b: BloqueoAgenda) {
     const motivo = b.motivo || t.motivoDefault;
@@ -197,8 +197,13 @@ export default function AgendaDisponibilidadPage() {
   }
 
   // ===== Calendario =====
-  const hoyDate = new Date(`${AGENDA_INSTRUCTOR_HOY}T00:00:00`);
+  const hoyDate = new Date(`${hoy}T00:00:00`);
   const [anioMes, setAnioMes] = useState({ anio: hoyDate.getFullYear(), mes: hoyDate.getMonth() });
+  // "hoy" pasa de la fecha demo a la real cuando cargan los datos de la base.
+  useEffect(() => {
+    const d = new Date(`${hoy}T00:00:00`);
+    setAnioMes({ anio: d.getFullYear(), mes: d.getMonth() });
+  }, [hoy]);
   const celdasMes = generarCeldasMes(anioMes.anio, anioMes.mes);
 
   function mesAnterior() {
@@ -412,7 +417,7 @@ export default function AgendaDisponibilidadPage() {
               {celdasMes.map((fechaISO, i) => {
                 if (!fechaISO) return <div key={`b${i}`} />;
                 const diaSem = diaSemanaDe(fechaISO);
-                const esHoy = fechaISO === AGENDA_INSTRUCTOR_HOY;
+                const esHoy = fechaISO === hoy;
                 const bloqueoCompleto = bloqueos.find((b) => bloqueoCompletoEnFecha(b, fechaISO));
                 const bloqueoParcial = bloqueos.find((b) => bloqueoParcialEnFecha(b, fechaISO));
                 const noLaborable = !horarioSemanal[diaSem].activo;
