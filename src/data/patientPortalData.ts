@@ -1,4 +1,6 @@
 export interface CitaPaciente {
+  // uuid de la fila en `citas` — solo presente en citas reales de la base.
+  id?: string;
   dia: string;
   mes: string;
   fecha: { es: string; en: string };

@@ -60,13 +60,17 @@ export default function LibraryPage() {
       alert(language === 'es' ? 'El comprobante real solo está disponible para compras con sesión activa.' : 'Real receipt is only available for purchases with active session.');
       return;
     }
+    // createDownloadLink espera el id numérico de compras_digitales; las compras
+    // demo (#PA-xxxxx) no existen en la base.
+    const compraId = Number(ordenId);
+    if (!Number.isInteger(compraId)) {
+      alert(language === 'es' ? 'Esta compra es de demostración y no tiene comprobante real.' : 'This is a demo purchase and has no real receipt.');
+      return;
+    }
     setIsDownloading(true);
-    // In a real scenario, ordenId should be the numeric ID from the database
-    // For this mockup, if we are in real auth, we pass the mock orden ID
-    // which will likely return an error from the backend.
-    const res = await createDownloadLink(ordenId);
+    const res = await createDownloadLink(compraId);
     setIsDownloading(false);
-    if (res.ok && res.data?.download_url) {
+    if (!res.error && res.data?.download_url) {
       window.open(res.data.download_url, '_blank');
     } else {
       alert(res.error?.message || 'Error al obtener el comprobante.');

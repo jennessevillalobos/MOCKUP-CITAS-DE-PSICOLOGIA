@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, CreditCard, ShieldCheck, Loader2, PartyPopper, ArrowRight, Building, UploadCloud } from 'lucide-react';
+import { X, ShieldCheck, Loader2, PartyPopper, ArrowRight, Building, UploadCloud } from 'lucide-react';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { getSupabaseClient } from '@/lib/supabase/client';
@@ -102,7 +102,7 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
           if (currentOrdenId) {
             if (method === 'card') {
               const res = await createStripeSession(currentOrdenId, monto);
-              if (res.ok && res.data?.checkout_url) {
+              if (!res.error && res.data?.checkout_url) {
                 setIsProcessing(false);
                 window.location.href = res.data.checkout_url;
                 return;
@@ -113,7 +113,7 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
               }
             } else if (method === 'paypal') {
               const res = await createPaypalOrder(currentOrdenId);
-              if (res.ok && res.data?.approval_url) {
+              if (!res.error && res.data?.approval_url) {
                 setIsProcessing(false);
                 window.location.href = res.data.approval_url;
                 return;

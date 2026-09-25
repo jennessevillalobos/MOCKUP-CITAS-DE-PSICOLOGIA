@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  ArrowRight, ArrowUpRight, Award, BookOpen, CalendarDays, Check, ChevronDown, Clock3, Heart,
+  ArrowRight, ArrowUpRight, Award, BookOpen, CalendarDays, Check, Clock3, Heart,
   Instagram, Linkedin, Mail, MapPin, Menu, MessageCircle, MoveRight, Play, ShieldCheck, Sparkles,
   Users, Video, X, Youtube,
 } from 'lucide-react';

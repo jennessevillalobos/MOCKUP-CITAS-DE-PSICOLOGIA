@@ -26,7 +26,7 @@ CREATE TRIGGER trg_validar_completitud_clase
 -- Pero para cumplir con el requerimiento de "Calcular progreso general",
 -- crearemos vistas que agregan los datos en tiempo real.
 
-CREATE OR REPLACE VIEW public.progreso_modulos AS
+CREATE OR REPLACE VIEW public.progreso_modulos WITH (security_invoker = true) AS
 SELECT 
     m.curso_id,
     c.modulo_id,
@@ -48,7 +48,7 @@ GROUP BY
     m.curso_id, c.modulo_id, p.usuario_id;
 
 
-CREATE OR REPLACE VIEW public.progreso_cursos AS
+CREATE OR REPLACE VIEW public.progreso_cursos WITH (security_invoker = true) AS
 SELECT 
     c.curso_id,
     c.usuario_id,

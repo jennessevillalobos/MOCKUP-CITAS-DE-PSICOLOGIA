@@ -22,6 +22,9 @@ ALTER TABLE public.pagos
 ALTER TABLE public.pagos
     ADD COLUMN IF NOT EXISTS usuario_id UUID REFERENCES public.usuarios(id);
 
+-- Movida desde 004: requiere la columna pagos.usuario_id
+CREATE POLICY "Usuarios ven sus propios pagos" ON public.pagos FOR SELECT TO public USING ((auth.uid() = usuario_id));
+
 -- 4. Tabla de idempotencia para webhooks y operaciones financieras (BE-027)
 -- Garantiza que un mismo evento (ej: ID de evento Stripe) no se procese dos veces.
 CREATE TABLE public.idempotencia (
@@ -39,7 +42,7 @@ RETURNS void AS $$
 BEGIN
     DELETE FROM public.idempotencia WHERE expira_en < NOW();
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- 5. RLS en idempotencia: solo service_role (Edge Functions) puede acceder
 ALTER TABLE public.idempotencia ENABLE ROW LEVEL SECURITY;

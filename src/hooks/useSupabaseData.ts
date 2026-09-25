@@ -38,6 +38,7 @@ export function useMyAppointments() {
         rows.map((c) => {
           const d = new Date(`${c.fecha}T00:00:00`);
           return {
+            id: c.id,
             dia: d.toLocaleDateString('es-ES', { day: '2-digit' }),
             mes: d.toLocaleDateString('es-ES', { month: 'short' }).toUpperCase().replace('.', ''),
             fecha: {

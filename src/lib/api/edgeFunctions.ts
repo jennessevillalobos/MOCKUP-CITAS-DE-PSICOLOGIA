@@ -113,18 +113,18 @@ async function callEdgeFunction<T>(
     return fail<T>({ code: 'invalid_response', message: 'Respuesta inválida del servidor.', status: response.status });
   }
 
-  if (!response.ok) {
-    const err = json as { error?: string; message?: string };
+  // Las Edge Functions de este proyecto responden { data, error: { code, message } | null, request_id }
+  const result = json as { data?: T; error?: { code?: string; message?: string } | null };
+
+  if (!response.ok || result?.error) {
     return fail<T>({
-      code: err?.error ?? 'edge_function_error',
-      message: err?.message ?? `Error ${response.status} del servidor.`,
+      code: result?.error?.code ?? 'edge_function_error',
+      message: result?.error?.message ?? `Error ${response.status} del servidor.`,
       status: response.status,
     });
   }
 
-  // Las Edge Functions de este proyecto devuelven { ok: true, data: T, requestId: string }
-  const result = json as { ok: boolean; data: T };
-  return ok(result.data ?? (json as T));
+  return ok(result.data as T);
 }
 
 // ─── Funciones públicas (una por Edge Function relevante) ─────────────────────

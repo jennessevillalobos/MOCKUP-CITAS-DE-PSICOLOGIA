@@ -115,22 +115,6 @@ Deno.serve(async (req) => {
     const slotStart = toMins(hora);
     const slotEnd = slotStart + duracion;
 
-    // Verificar que no existe ya otro bloqueo activo para ese slot
-    const { data: bloqueos, error: blqError } = await serviceClient
-      .from('bloqueos_temporales')
-      .select('id, expira_en')
-      .eq('profesional_id', profesional_id)
-      .eq('fecha', fecha)
-      .gte('expira_en', new Date().toISOString());
-
-    if (blqError) return jsonError('db_error', 'Error al verificar bloqueos.', 500, requestId);
-
-    const colision = (bloqueos ?? []).some(b => {
-      const bStart = toMins(b.expira_en); // No usamos hora del bloqueo aquí
-      return true; // Chequeo por existencia: si hay bloqueo en ese profesional+fecha...
-      // El chequeo real usa la validación de intervalo abajo
-    });
-
     // Chequeo preciso: revisar si algún bloqueo activo tiene intersección con nuestro slot
     const { data: bloqueosPrecise, error: blqPError } = await serviceClient
       .from('bloqueos_temporales')

@@ -105,18 +105,8 @@ Deno.serve(async (req) => {
 
       if (!ordenId) break;
 
-      // Registrar el pago individual
-      await serviceClient.from('pagos').insert({
-        orden_id: ordenId,
-        usuario_id: usuarioId,
-        monto: montoTotal,
-        moneda,
-        metodo: 'stripe',
-        referencia: sessionId,
-        estado: 'aprobado',
-      });
-
-      // Llamar confirm-appointment si es una cita
+      // Citas: confirm-appointment registra el pago y actualiza la cita.
+      // Registrarlo también aquí lo duplicaría.
       if (tipoProducto === 'cita' && productoId) {
         await fetch(
           `${Deno.env.get('SUPABASE_URL')}/functions/v1/confirm-appointment`,
@@ -135,7 +125,16 @@ Deno.serve(async (req) => {
           }
         );
       } else {
-        // Para cursos/productos, marcar orden como pagada
+        // Para cursos/productos: registrar el pago y marcar la orden como pagada
+        await serviceClient.from('pagos').insert({
+          orden_id: ordenId,
+          usuario_id: usuarioId,
+          monto: montoTotal,
+          moneda,
+          metodo: 'stripe',
+          referencia: sessionId,
+          estado: 'aprobado',
+        });
         await serviceClient
           .from('ordenes')
           .update({ estado: 'pagado' })

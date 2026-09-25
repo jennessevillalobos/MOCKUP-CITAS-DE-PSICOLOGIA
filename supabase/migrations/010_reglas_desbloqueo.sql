@@ -65,7 +65,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE TRIGGER trg_otorgar_acceso_por_pago
     AFTER UPDATE OF estado ON public.ordenes
@@ -97,7 +97,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE TRIGGER trg_evaluar_desbloqueo_por_progreso
     AFTER UPDATE OF completado ON public.progreso
@@ -129,7 +129,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE TRIGGER trg_evaluar_desbloqueo_por_evaluacion
     AFTER INSERT OR UPDATE OF aprobado ON public.intentos_evaluacion

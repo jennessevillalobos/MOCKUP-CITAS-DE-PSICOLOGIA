@@ -11,7 +11,8 @@ CREATE POLICY "Usuarios ven sus propias citas" ON public.citas FOR SELECT TO pub
 CREATE POLICY "Lectura publica de clases" ON public.clases FOR SELECT TO public USING ((estado = 'activo'::text));
 CREATE POLICY "Usuarios ven sus compras digitales" ON public.compras_digitales FOR SELECT TO public USING ((auth.uid() = usuario_id));
 CREATE POLICY "Lectura publica de cursos" ON public.cursos FOR SELECT TO public USING ((estado = 'publicado'::text));
-CREATE POLICY "Usuarios ven sus enlaces de descarga" ON public.enlaces_descarga FOR SELECT TO public USING ((auth.uid() = usuario_id));
+-- enlaces_descarga no tiene usuario_id: el dueño se resuelve a través de compras_digitales
+CREATE POLICY "Usuarios ven sus enlaces de descarga" ON public.enlaces_descarga FOR SELECT TO public USING ((EXISTS ( SELECT 1 FROM public.compras_digitales cd WHERE ((cd.id = enlaces_descarga.compra_id) AND (cd.usuario_id = auth.uid())))));
 CREATE POLICY "Lectura publica de evaluaciones" ON public.evaluaciones FOR SELECT TO public USING (true);
 CREATE POLICY "Lectura publica de horarios" ON public.horarios FOR SELECT TO public USING (true);
 CREATE POLICY "Usuarios se inscriben en cursos" ON public.inscripciones FOR INSERT TO public WITH CHECK ((auth.uid() = usuario_id));
@@ -25,7 +26,7 @@ CREATE POLICY "Lectura publica de monedas" ON public.monedas FOR SELECT TO publi
 CREATE POLICY "Lectura publica de opciones" ON public.opciones FOR SELECT TO public USING (true);
 CREATE POLICY "Usuarios crean sus propias ordenes" ON public.ordenes FOR INSERT TO public WITH CHECK ((auth.uid() = usuario_id));
 CREATE POLICY "Usuarios ven sus ordenes" ON public.ordenes FOR SELECT TO public USING ((auth.uid() = usuario_id));
-CREATE POLICY "Usuarios ven sus propios pagos" ON public.pagos FOR SELECT TO public USING ((auth.uid() = usuario_id));
+-- La política "Usuarios ven sus propios pagos" se crea en 008, cuando se agrega pagos.usuario_id
 CREATE POLICY "Lectura publica de preguntas" ON public.preguntas FOR SELECT TO public USING (true);
 CREATE POLICY "Lectura publica de productos digitales" ON public.productos_digitales FOR SELECT TO public USING ((estado = 'activo'::text));
 CREATE POLICY "Lectura publica de profesional_lugar" ON public.profesional_lugar FOR SELECT TO public USING (true);

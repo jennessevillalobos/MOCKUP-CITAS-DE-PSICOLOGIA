@@ -137,18 +137,8 @@ Deno.serve(async (req) => {
 
       if (!ordenId) break;
 
-      // Registrar el pago
-      await serviceClient.from('pagos').insert({
-        orden_id: ordenId,
-        usuario_id: usuarioId ?? null,
-        monto: montoEnCentavos,
-        moneda: monedaCapturada,
-        metodo: 'paypal',
-        referencia: captureId,
-        estado: 'aprobado',
-      });
-
-      // Confirmar cita si aplica
+      // Citas: confirm-appointment registra el pago y actualiza la cita.
+      // Registrarlo también aquí lo duplicaría.
       if (tipoProducto === 'cita' && productoId) {
         await fetch(
           `${Deno.env.get('SUPABASE_URL')}/functions/v1/confirm-appointment`,
@@ -166,7 +156,16 @@ Deno.serve(async (req) => {
             }),
           }
         );
-      } else if (ordenId) {
+      } else {
+        await serviceClient.from('pagos').insert({
+          orden_id: ordenId,
+          usuario_id: usuarioId ?? null,
+          monto: montoEnCentavos,
+          moneda: monedaCapturada,
+          metodo: 'paypal',
+          referencia: captureId,
+          estado: 'aprobado',
+        });
         await serviceClient.from('ordenes').update({ estado: 'pagado' }).eq('id', ordenId);
       }
       break;

@@ -67,4 +67,4 @@ BEGIN
     -- Solo se marcan como completadas las que ya pasaron hace más de 1 hora
     -- para dar margen en caso de citas que empezaron un poco tarde.
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;

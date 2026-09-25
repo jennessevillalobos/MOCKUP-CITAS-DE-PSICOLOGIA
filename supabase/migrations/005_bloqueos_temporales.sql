@@ -34,4 +34,4 @@ RETURNS void AS $$
 BEGIN
     DELETE FROM public.bloqueos_temporales WHERE expira_en < NOW();
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;

@@ -74,7 +74,7 @@ const pagoEstadoEstilo: Record<string, string> = {
 };
 
 export default function PatientPortalPage() {
-  const { user } = useSiteAuth();
+  const { user, isRealAuth } = useSiteAuth();
   const { language } = useSiteLanguage();
   const navigate = useNavigate();
   const t = text[language];
@@ -110,9 +110,10 @@ export default function PatientPortalPage() {
     return [...reales, ...demoPagos];
   }, [dbCompras, demoPagos]);
 
-  const handleCancelar = async (citaId: string) => {
+  const handleCancelar = async (citaId?: string) => {
     if (!window.confirm(t.confirmCancelar)) return;
-    if (!isRealAuth) {
+    // Sin sesión real o sin id de base (citas demo/wizard), la cancelación es solo visual.
+    if (!isRealAuth || !citaId) {
       alert('En modo demo solo es visual. En producción se cancelará la cita en la base de datos.');
       setCitaSeleccionada(prev => prev ? { ...prev, estado: 'cancelada' } : null);
       return;
@@ -120,7 +121,7 @@ export default function PatientPortalPage() {
     setIsCanceling(true);
     const res = await cancelarCita(citaId);
     setIsCanceling(false);
-    if (res.ok) {
+    if (!res.error) {
       await refreshCitas();
       setTab('citas');
     } else {

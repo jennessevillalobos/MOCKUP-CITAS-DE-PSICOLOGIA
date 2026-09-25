@@ -15,7 +15,7 @@
 
 import { handleOptions } from '../_shared/cors.ts';
 import { jsonOk, jsonError, generateRequestId, readJson } from '../_shared/http.ts';
-import { createUserClient, createServiceClient } from '../_shared/auth.ts';
+import { createUserClient, createServiceClient, serviceRoleKey } from '../_shared/auth.ts';
 
 interface ConfirmInput {
   cita_id: string;
@@ -31,11 +31,27 @@ Deno.serve(async (req) => {
   const requestId = generateRequestId();
   if (req.method !== 'POST') return jsonError('method_not_allowed', 'Solo se permite POST.', 405, requestId);
 
-  // Esta función puede ser llamada tanto por webhooks (sin usuario autenticado)
-  // como por el admin autenticado. Intentamos obtener el usuario, pero no es obligatorio.
-  const userClient = createUserClient(req);
-  const { data: authData } = await userClient.auth.getUser();
-  const llamadorId = authData?.user?.id ?? null;
+  // Solo pueden llamarla los webhooks de pago (con la service role key) o un
+  // administrador autenticado: registra pagos y confirma citas.
+  const serviceClient = createServiceClient();
+  const bearer = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+  const esServicio = bearer !== '' && bearer === serviceRoleKey();
+  let llamadorId: string | null = null;
+
+  if (!esServicio) {
+    const userClient = createUserClient(req);
+    const { data: authData } = await userClient.auth.getUser();
+    llamadorId = authData?.user?.id ?? null;
+    if (!llamadorId) return jsonError('unauthenticated', 'Debes iniciar sesión.', 401, requestId);
+
+    const { data: rolAdmin } = await serviceClient
+      .from('usuario_roles')
+      .select('rol_id, roles!inner(nombre)')
+      .eq('usuario_id', llamadorId)
+      .eq('roles.nombre', 'administrador')
+      .maybeSingle();
+    if (!rolAdmin) return jsonError('forbidden', 'Solo un administrador puede registrar pagos.', 403, requestId);
+  }
 
   // Validar payload
   const body = await readJson<ConfirmInput>(req);
@@ -46,8 +62,6 @@ Deno.serve(async (req) => {
   if (body.monto_pagado <= 0) {
     return jsonError('invalid_amount', 'El monto_pagado debe ser mayor a 0.', 422, requestId);
   }
-
-  const serviceClient = createServiceClient();
 
   // 1. Obtener la cita con su orden asociada
   const { data: cita, error: citaError } = await serviceClient
