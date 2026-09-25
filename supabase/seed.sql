@@ -1,5 +1,5 @@
 -- Seed para desarrollo local. Solo usar en el ambiente `dev` de Supabase.
--- Antes de ejecutar, validá que las migraciones 001-016 ya están aplicadas.
+-- Antes de ejecutar, validá que las migraciones 001-019 ya están aplicadas.
 
 -- ── Monedas ──
 INSERT INTO public.monedas (codigo, nombre, simbolo, es_principal, estado) VALUES
@@ -200,3 +200,8 @@ INSERT INTO public.cursos (profesional_id, nombre, slug, descripcion, categoria,
  (4, 'Afrontar el duelo', 'afrontar-duelo', 'Un espacio para procesar la pérdida a tu propio ritmo, con acompañamiento profesional.',
   'Bienestar', 'Principiante', 'Español', 4500, 'USD', NULL, 'borrador')
 ON CONFLICT (slug) DO NOTHING;
+
+-- ── Clases en vivo de colegas (mismas que CLASES_VIVO_DEMO en src/data/clasesVivoInstructorData.ts) ──
+INSERT INTO public.clases_en_vivo (profesional_id, titulo, fecha, hora, duracion_min, enlace, destinatario_tipo, grabar, recordatorio, estado) VALUES
+ (5, 'Q&A: Inteligencia emocional', CURRENT_DATE + 3, '17:00', 60, 'https://zoom.us/j/1102938', 'curso', false, false, 'programada'),
+ (6, 'Charla: Crianza y límites', CURRENT_DATE + 5, '19:00', 45, 'https://meet.google.com/xyz-uvwx-rst', 'curso', false, false, 'programada');

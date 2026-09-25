@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Radio, CalendarDays, Users, Video as VideoIcon, Mic, Hand, ScreenShare, PhoneOff, Send,
   Play, ArrowLeft, Copy, Pencil, XCircle, Bell, BellOff, RefreshCw,
@@ -7,9 +7,10 @@ import PortalLayout from '@/components/site/PortalLayout';
 import { INSTRUCTOR_NAV_LABELS, buildInstructorNav } from '@/components/site/instructorNav';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useInstructorLiveClasses, type NuevaClaseInput } from '@/context/InstructorLiveClassesContext';
-import { CLASES_VIVO_DEMO, CHAT_DEMO_INSTRUCTOR, HOY_VIVO, type ClaseEnVivo, type ClaseVivoEstado, type DestinatarioTipo } from '@/data/clasesVivoInstructorData';
-import { CURSOS_META, CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
-import { CITAS_INSTRUCTOR_DEMO } from '@/data/citasInstructorData';
+import { CLASES_VIVO_DEMO, CHAT_DEMO_INSTRUCTOR, type ClaseEnVivo, type ClaseVivoEstado, type DestinatarioTipo } from '@/data/clasesVivoInstructorData';
+import { CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
+import { useInstructorCourses } from '@/context/InstructorCoursesContext';
+import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
 
 type Vista = 'lista' | 'sala' | 'grabacion';
 type Tab = 'agenda' | 'grabaciones';
@@ -113,8 +114,8 @@ function nuevoEnlaceDemo() {
 
 const FORM_INICIAL = {
   titulo: '',
-  cursoKey: CURSOS_META[0]?.key ?? '',
-  fechaISO: '2026-08-20',
+  cursoKey: '',
+  fechaISO: '',
   hora: '18:00',
   duracionMin: 60,
   enlace: '',
@@ -127,7 +128,9 @@ const FORM_INICIAL = {
 export default function ClasesVivoPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
-  const { clases, crearClase, actualizarClase, cancelarClase, iniciarClase, finalizarClase, toggleRecordarme, recordatoriosColegas } = useInstructorLiveClasses();
+  const { clases, hoy, errorClases, crearClase, actualizarClase, cancelarClase, iniciarClase, finalizarClase, toggleRecordarme, recordatoriosColegas } = useInstructorLiveClasses();
+  const { cursos, metaCursos } = useInstructorCourses();
+  const { citas } = useInstructorAgenda();
 
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['vivo'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
 
@@ -136,8 +139,25 @@ export default function ClasesVivoPage() {
   const [ambito, setAmbito] = useState<Ambito>('todas');
   const [filtroEstado, setFiltroEstado] = useState<'' | ClaseVivoEstado>('');
 
+  // Formulario nuevo: primer curso de la lista y una semana después de "hoy".
+  function formularioNuevo() {
+    const d = new Date(`${hoy}T00:00:00`);
+    d.setDate(d.getDate() + 7);
+    const fecha = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return { ...FORM_INICIAL, cursoKey: metaCursos[0]?.key ?? '', fechaISO: fecha };
+  }
+
   const [form, setForm] = useState(FORM_INICIAL);
   const [editandoId, setEditandoId] = useState<string | null>(null);
+
+  // Con la base, los cursos y el "hoy" real llegan después del primer render:
+  // el formulario sin tocar se rellena con esos valores.
+  useEffect(() => {
+    if (editandoId) return;
+    setForm((f) => (f.titulo ? f : { ...f, ...formularioNuevo() }));
+    // formularioNuevo solo depende de hoy y metaCursos
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hoy, metaCursos, editandoId]);
   const [enlaceCopiadoId, setEnlaceCopiadoId] = useState<string | null>(null);
 
   const [salaClaseId, setSalaClaseId] = useState<string | null>(null);
@@ -150,11 +170,12 @@ export default function ClasesVivoPage() {
 
   const pacientesUnicos = useMemo(() => {
     const vistos = new Map<string, string>();
-    CITAS_INSTRUCTOR_DEMO.forEach((c) => {
-      if (!vistos.has(c.correo)) vistos.set(c.correo, c.paciente);
+    // Pacientes del profesional (con la base: los de sus citas reales).
+    citas.forEach((c) => {
+      if (c.correo && !vistos.has(c.correo)) vistos.set(c.correo, c.paciente);
     });
     return Array.from(vistos.entries()).map(([correo, nombre]) => ({ correo, nombre }));
-  }, []);
+  }, [citas]);
 
   const claseSala = salaClaseId ? clases.find((c) => c.id === salaClaseId) ?? null : null;
   const grabacionActual = grabacionId ? clases.find((c) => c.id === grabacionId) ?? null : null;
@@ -162,7 +183,7 @@ export default function ClasesVivoPage() {
   const enVivoAhora = clases.filter((c) => c.estado === 'vivo').length;
   const misProgramadas = clases.filter((c) => c.esPropia && c.estado === 'programada');
   const misEstaSemana = misProgramadas.filter((c) => {
-    const d = diffDias(c.fechaISO, HOY_VIVO);
+    const d = diffDias(c.fechaISO, hoy);
     return d >= 0 && d <= 6;
   }).length;
   const grabacionesDisponibles = clases.filter((c) => c.estado === 'finalizada' && c.grabar);
@@ -175,17 +196,17 @@ export default function ClasesVivoPage() {
   }, [clases, ambito, filtroEstado]);
 
   function resetForm() {
-    setForm(FORM_INICIAL);
+    setForm(formularioNuevo());
     setEditandoId(null);
   }
 
   function tituloCurso(cursoKey: string) {
-    return CURSOS_INFO_DEMO[cursoKey]?.titulo || CLASES_VIVO_DEMO.find((c) => c.cursoKey === cursoKey)?.cursoTitulo || '';
+    return cursos[cursoKey]?.titulo || CURSOS_INFO_DEMO[cursoKey]?.titulo || CLASES_VIVO_DEMO.find((c) => c.cursoKey === cursoKey)?.cursoTitulo || '';
   }
 
   function guardarClase() {
     if (!form.titulo.trim()) return;
-    const cursoMeta = CURSOS_META.find((m) => m.key === form.cursoKey);
+    const cursoMeta = metaCursos.find((m) => m.key === form.cursoKey);
     const input: NuevaClaseInput = {
       titulo: form.titulo.trim(),
       cursoKey: cursoMeta?.key,
@@ -280,7 +301,7 @@ export default function ClasesVivoPage() {
     if (!c.destinatario) return '';
     if (c.destinatario.tipo === 'curso') {
       if (!c.cursoKey) return t.abierta;
-      const meta = CURSOS_META.find((m) => m.key === c.cursoKey);
+      const meta = metaCursos.find((m) => m.key === c.cursoKey);
       return `${meta?.estudiantes ?? 0} · ${c.cursoTitulo ?? ''}`;
     }
     return t.pacientesN(c.destinatario.pacientesCorreos?.length ?? 0);
@@ -384,6 +405,10 @@ export default function ClasesVivoPage() {
             <p className="text-sm text-ink/50">{t.subtitulo}</p>
           </div>
 
+          {errorClases && (
+            <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorClases}</p>
+          )}
+
           <section className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="rounded-2xl border border-brand-100 bg-white p-4">
               <p className="text-xs text-ink/50">{t.enVivoAhora}</p>
@@ -442,7 +467,7 @@ export default function ClasesVivoPage() {
                       onChange={(e) => setForm((f) => ({ ...f, cursoKey: e.target.value, destinatarioTipo: e.target.value ? f.destinatarioTipo : 'pacientes' }))}
                       className="focus-ring w-full rounded-xl border border-brand-200 px-3 py-2.5 text-sm text-ink"
                     >
-                      {CURSOS_META.map((m) => (
+                      {metaCursos.map((m) => (
                         <option key={m.key} value={m.key}>{tituloCurso(m.key)}</option>
                       ))}
                       <option value="">{t.sinCurso}</option>
@@ -513,7 +538,7 @@ export default function ClasesVivoPage() {
                     {form.destinatarioTipo === 'curso' ? (
                       <p className="mt-2 text-xs text-emerald-700">
                         {form.cursoKey
-                          ? t.destResumenCurso(CURSOS_META.find((m) => m.key === form.cursoKey)?.estudiantes ?? 0, tituloCurso(form.cursoKey))
+                          ? t.destResumenCurso(metaCursos.find((m) => m.key === form.cursoKey)?.estudiantes ?? 0, tituloCurso(form.cursoKey))
                           : t.destResumenSinCurso}
                       </p>
                     ) : (

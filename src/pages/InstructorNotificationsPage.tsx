@@ -37,7 +37,7 @@ export default function InstructorNotificationsPage() {
   const t = text[language];
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['notif'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
 
-  const { notificaciones, marcarLeida, marcarTodasLeidas } = useInstructorNotifications();
+  const { notificaciones, marcarLeida, marcarTodasLeidas, errorNotificaciones } = useInstructorNotifications();
   const noLeidas = notificaciones.filter((n) => !n.leida).length;
 
   const hoy = notificaciones.filter((n) => n.grupo === 'hoy');
@@ -95,6 +95,9 @@ export default function InstructorNotificationsPage() {
         <button onClick={marcarTodasLeidas} className="text-sm font-semibold text-brand-600 hover:underline">{t.marcarTodo}</button>
       </div>
       <p className="-mt-4 text-sm text-ink/50">{t.subtitulo}</p>
+      {errorNotificaciones && (
+        <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorNotificaciones}</p>
+      )}
 
       {notificaciones.length === 0 ? (
         <div className="rounded-2xl border border-brand-100 bg-white p-8 text-center text-sm text-ink/45">

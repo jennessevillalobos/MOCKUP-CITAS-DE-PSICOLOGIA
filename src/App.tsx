@@ -245,9 +245,13 @@ function App() {
           path="/instructor/vivo"
           element={
             <ProtectedSiteRoute rol="profesional">
-              <InstructorLiveClassesProvider>
-                <ClasesVivoPage />
-              </InstructorLiveClassesProvider>
+              <InstructorAgendaProvider>
+                <InstructorCoursesProvider>
+                  <InstructorLiveClassesProvider>
+                    <ClasesVivoPage />
+                  </InstructorLiveClassesProvider>
+                </InstructorCoursesProvider>
+              </InstructorAgendaProvider>
             </ProtectedSiteRoute>
           }
         />

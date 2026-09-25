@@ -11,7 +11,6 @@ import { useInstructorCourses } from '@/context/InstructorCoursesContext';
 import { useInstructorLiveClasses } from '@/context/InstructorLiveClassesContext';
 import { useInstructorGrading } from '@/context/InstructorGradingContext';
 import { CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
-import { HOY_VIVO } from '@/data/clasesVivoInstructorData';
 import { ACTIVIDAD_INSTRUCTOR } from '@/data/instructorPortalData';
 
 const text = {
@@ -67,7 +66,7 @@ export default function InstructorPage() {
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['dash'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
   const { citas, hoy } = useInstructorAgenda();
   const { cursos, modulosPorCurso, metaCursos } = useInstructorCourses();
-  const { clases } = useInstructorLiveClasses();
+  const { clases, hoy: hoyVivo } = useInstructorLiveClasses();
   const { intentos } = useInstructorGrading();
 
   const nombre = user?.nombre || 'Dra. Ana Rivas';
@@ -87,7 +86,7 @@ export default function InstructorPage() {
     .filter((c) => c.estado === 'programada' || c.estado === 'vivo')
     .sort((a, b) => (a.fechaISO + a.hora).localeCompare(b.fechaISO + b.hora));
   const clasesVivoEstaSemana = clasesVivoProximas.filter((c) => {
-    const d = diffDias(c.fechaISO, HOY_VIVO);
+    const d = diffDias(c.fechaISO, hoyVivo);
     return d >= 0 && d <= 6;
   }).length;
 
@@ -278,7 +277,7 @@ export default function InstructorPage() {
                 <p className="text-xs text-ink/40">{t.sinClasesVivo}</p>
               ) : (
                 clasesVivoProximas.slice(0, 3).map((c) => {
-                  const esHoy = c.fechaISO === HOY_VIVO;
+                  const esHoy = c.fechaISO === hoyVivo;
                   const label = c.estado === 'vivo' ? (c.esPropia ? t.iniciar : t.unirse) : t.ver;
                   return (
                     <Link key={c.id} to="/instructor/vivo" className="flex items-center gap-3 rounded-xl -mx-1 px-1 py-0.5 hover:bg-brand-50/50">
