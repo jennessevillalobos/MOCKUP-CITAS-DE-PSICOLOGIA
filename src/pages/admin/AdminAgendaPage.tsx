@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { ChevronLeft, ChevronRight, Plus, Video, MapPin, X, CalendarDays } from 'lucide-react';
 import AdminLayout from '@/components/admin/AdminLayout';
 import StatusBadge from '@/components/admin/ui/StatusBadge';
@@ -6,6 +6,46 @@ import AdminModal from '@/components/admin/ui/AdminModal';
 import { useAdminLanguage } from '@/context/AdminLanguageContext';
 import { demoCitas, AGENDA_HOY, type CitaRecord, type CitaEstado } from '@/data/admin/agendaData';
 import { demoProfesionales, demoLugares, demoServicios } from '@/data/admin/servicesData';
+import { useAdminAuth } from '@/context/AdminAuthContext';
+import { useDialogo } from '@/context/DialogoContext';
+import { cargarAgendaAdmin, actualizarCitaAdmin, crearCitaAdmin, type AgendaAdmin, type CitaAdmin, type EstadoCitaBase } from '@/lib/api/admin';
+
+// Con Supabase: cita de la base → registro del calendario.
+type RegistroCita = CitaRecord & { estadoBase?: EstadoCitaBase; precio?: number; saldo?: number };
+
+const ESTADO_DESDE_BASE: Record<EstadoCitaBase, CitaEstado> = {
+  pendiente_pago: 'Programada', parcialmente_pagada: 'Programada', confirmada: 'Programada', reprogramada: 'Programada',
+  completada: 'Completada', cancelada: 'Cancelada', no_asistio: 'No asistió',
+};
+const ETIQUETA_BASE: Partial<Record<EstadoCitaBase, string>> = {
+  pendiente_pago: 'Pendiente de pago', parcialmente_pagada: 'Pago parcial', confirmada: 'Confirmada', reprogramada: 'Reprogramada',
+};
+
+function citaDesdeBase(c: CitaAdmin): RegistroCita {
+  const online = c.modalidad === 'virtual';
+  return {
+    id: c.id,
+    fechaISO: c.fecha,
+    hora: c.hora,
+    duracionMin: c.duracion,
+    paciente: c.paciente ?? '—',
+    correo: c.correo ?? '',
+    servicio: c.servicio ?? 'Cita',
+    profesional: c.profesional ?? '—',
+    modalidad: online ? 'Online' : 'Presencial',
+    lugar: online ? undefined : c.lugar ?? (c.modalidad === 'domicilio' ? 'Domicilio' : undefined),
+    estado: ESTADO_DESDE_BASE[c.estado] ?? 'Programada',
+    notas: c.notas ?? undefined,
+    estadoBase: c.estado,
+    precio: c.precio,
+    saldo: c.saldo,
+  };
+}
+
+function hoyLocalISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 type Vista = 'dia' | 'semana' | 'mes';
 
@@ -84,20 +124,69 @@ function addMinutes(hora: string, min: number) {
 export default function AdminAgendaPage() {
   const { lang } = useAdminLanguage();
   const t = text[lang];
-  const [citas, setCitas] = useState<CitaRecord[]>(demoCitas);
+  const { esReal } = useAdminAuth();
+  const { confirmar, pedirTexto } = useDialogo();
+  const HOY = esReal ? hoyLocalISO() : AGENDA_HOY;
+  const [citas, setCitas] = useState<RegistroCita[]>(() => (esReal ? [] : demoCitas));
+  const [catalogo, setCatalogo] = useState<AgendaAdmin | null>(null);
+  const [aviso, setAviso] = useState<{ texto: string; error?: boolean } | null>(null);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const [procesando, setProcesando] = useState(false);
   const [vista, setVista] = useState<Vista>('semana');
-  const [cursor, setCursor] = useState<Date>(parseISO(AGENDA_HOY));
+  const [cursor, setCursor] = useState<Date>(() => parseISO(esReal ? hoyLocalISO() : AGENDA_HOY));
   const [filtroProf, setFiltroProf] = useState('todos');
   const [filtroLugar, setFiltroLugar] = useState('todos');
   const [filtroServicio, setFiltroServicio] = useState('todos');
   const [filtroEstados, setFiltroEstados] = useState<Set<CitaEstado>>(new Set());
-  const [seleccion, setSeleccion] = useState<CitaRecord | null>(null);
+  const [seleccion, setSeleccion] = useState<RegistroCita | null>(null);
   const [edicion, setEdicion] = useState<{ fechaISO: string; hora: string } | null>(null);
 
   // Declarar primero para que citaVacia pueda usarlas sin crash
-  const profesionales = demoProfesionales.map((p) => p.nombre);
-  const lugares = demoLugares.map((l) => l.nombre);
-  const servicios = demoServicios.map((s) => s.nombre);
+  const profesionales = esReal ? (catalogo?.profesionales ?? []).map((p) => p.nombre) : demoProfesionales.map((p) => p.nombre);
+  const lugares = esReal ? (catalogo?.lugares ?? []).map((l) => l.nombre) : demoLugares.map((l) => l.nombre);
+  const servicios = esReal ? (catalogo?.servicios ?? []).map((s) => s.nombre) : demoServicios.map((s) => s.nombre);
+
+  function mostrarAviso(texto: string, error = false) {
+    setAviso({ texto, error });
+    window.setTimeout(() => setAviso(null), 4000);
+  }
+
+  // Modo real: citas de todas las profesionales + catálogo (admin_agenda).
+  const recargar = useCallback(async () => {
+    if (!esReal) return null;
+    const res = await cargarAgendaAdmin();
+    if (res.error) {
+      setErrorCarga(res.error.message);
+      return null;
+    }
+    setErrorCarga(null);
+    setCatalogo(res.data);
+    const lista = res.data.citas.map(citaDesdeBase);
+    setCitas(lista);
+    return lista;
+  }, [esReal]);
+
+  useEffect(() => {
+    void recargar();
+  }, [recargar]);
+
+  // ===== NUEVA CITA (modo real): por ids del catálogo =====
+  const idModalidad = (nombre: string) => catalogo?.modalidades.find((m) => m.nombre === nombre)?.id ?? 0;
+  const formRealVacio = () => ({
+    correo: '',
+    profesionalId: catalogo?.profesionales[0]?.id ?? 0,
+    servicioId: 0,
+    modalidadId: idModalidad('virtual'),
+    lugarId: catalogo?.lugares[0]?.id ?? 0,
+    fechaISO: hoyLocalISO(),
+    hora: '09:00',
+  });
+  const [formReal, setFormReal] = useState(formRealVacio);
+  const serviciosDeProf = (catalogo?.servicios ?? []).filter((s) =>
+    (catalogo?.ofrece ?? []).some((o) => o.profesionalId === formReal.profesionalId && o.servicioId === s.id)
+  );
+  const tarifaReal = catalogo?.tarifas.find((t) => t.servicioId === formReal.servicioId && t.modalidadId === formReal.modalidadId);
+  const esPresencialReal = formReal.modalidadId === idModalidad('presencial');
 
   // ===== NUEVA CITA =====
   const citaVacia = () => ({
@@ -111,11 +200,39 @@ export default function AdminAgendaPage() {
 
   function abrirModalNuevaCita() {
     setFormNueva(citaVacia());
+    setFormReal(formRealVacio());
     setErrorNueva('');
     setModalNuevaCita(true);
   }
 
+  async function crearCitaReal() {
+    const servicioId = formReal.servicioId || serviciosDeProf[0]?.id || 0;
+    if (!/^\S+@\S+\.\S+$/.test(formReal.correo.trim())) return setErrorNueva('Escribe el correo de la cuenta del paciente.');
+    if (!servicioId) return setErrorNueva('Esa profesional no tiene servicios asignados.');
+    if (!formReal.fechaISO || !formReal.hora) return setErrorNueva('Elige fecha y hora.');
+    setProcesando(true);
+    const res = await crearCitaAdmin({
+      correo: formReal.correo.trim(),
+      servicioId,
+      profesionalId: formReal.profesionalId,
+      modalidadId: formReal.modalidadId,
+      lugarId: esPresencialReal ? formReal.lugarId : null,
+      fecha: formReal.fechaISO,
+      hora: formReal.hora,
+    });
+    setProcesando(false);
+    if (res.error) return setErrorNueva(res.error.message);
+    setModalNuevaCita(false);
+    mostrarAviso('Cita creada. La paciente y la profesional recibieron un aviso.');
+    setCursor(parseISO(formReal.fechaISO));
+    await recargar();
+  }
+
   function crearCita() {
+    if (esReal) {
+      void crearCitaReal();
+      return;
+    }
     if (!formNueva.paciente.trim()) { setErrorNueva(lang === 'es' ? 'El nombre del paciente es requerido.' : 'Patient name is required.'); return; }
     if (!formNueva.fechaISO) { setErrorNueva(lang === 'es' ? 'Selecciona una fecha.' : 'Select a date.'); return; }
     const nueva: CitaRecord = {
@@ -155,7 +272,7 @@ export default function AdminAgendaPage() {
     setFiltroEstados(new Set());
   }
 
-  function abrirDetalle(c: CitaRecord) {
+  function abrirDetalle(c: RegistroCita) {
     setSeleccion(c);
     setEdicion({ fechaISO: c.fechaISO, hora: c.hora });
   }
@@ -163,12 +280,53 @@ export default function AdminAgendaPage() {
     setSeleccion(null);
     setEdicion(null);
   }
-  function cambiarEstado(id: string, estado: CitaEstado) {
+  async function cambiarEstado(id: string, estado: CitaEstado) {
+    if (esReal) {
+      const base = estado === 'Completada' ? 'completada' : estado === 'Cancelada' ? 'cancelada' : 'no_asistio';
+      let motivo: string | undefined;
+      if (base === 'cancelada') {
+        const texto = await pedirTexto(
+          'Motivo de la cancelación (opcional). La paciente y la profesional recibirán un aviso. Si la cita tenía pagos, el reembolso se registra en Pagos.',
+          { peligro: true, textoAceptar: 'Cancelar cita' }
+        );
+        if (texto === null) return;
+        motivo = texto;
+      } else {
+        const ok = await confirmar(base === 'completada' ? '¿Marcar la cita como realizada?' : '¿Marcar que la paciente no asistió?', {
+          textoAceptar: 'Confirmar',
+        });
+        if (!ok) return;
+      }
+      setProcesando(true);
+      const res = await actualizarCitaAdmin(id, { estado: base, motivo });
+      setProcesando(false);
+      if (res.error) {
+        const msg = /Transición de estado inválida/.test(res.error.message) ? 'Esa cita ya no admite ese cambio de estado.' : res.error.message;
+        return mostrarAviso(msg, true);
+      }
+      mostrarAviso('Cita actualizada.');
+      const lista = await recargar();
+      setSeleccion(lista?.find((c) => c.id === id) ?? null);
+      return;
+    }
     setCitas((prev) => prev.map((c) => (c.id === id ? { ...c, estado } : c)));
     setSeleccion((prev) => (prev && prev.id === id ? { ...prev, estado } : prev));
   }
-  function guardarReprogramacion() {
+  async function guardarReprogramacion() {
     if (!seleccion || !edicion) return;
+    if (esReal) {
+      if (edicion.fechaISO === seleccion.fechaISO && edicion.hora === seleccion.hora) return;
+      setProcesando(true);
+      const res = await actualizarCitaAdmin(seleccion.id, { fecha: edicion.fechaISO, hora: edicion.hora });
+      setProcesando(false);
+      if (res.error) return mostrarAviso(res.error.message, true);
+      mostrarAviso('Cita reprogramada. La paciente y la profesional recibieron un aviso.');
+      const lista = await recargar();
+      const nueva = lista?.find((c) => c.id === seleccion.id) ?? null;
+      setSeleccion(nueva);
+      if (nueva) setEdicion({ fechaISO: nueva.fechaISO, hora: nueva.hora });
+      return;
+    }
     setCitas((prev) => prev.map((c) => (c.id === seleccion.id ? { ...c, ...edicion } : c)));
     setSeleccion((prev) => (prev ? { ...prev, ...edicion } : prev));
   }
@@ -178,7 +336,7 @@ export default function AdminAgendaPage() {
   }
 
   function irHoy() {
-    setCursor(parseISO(AGENDA_HOY));
+    setCursor(parseISO(HOY));
   }
   function navegar(dir: 1 | -1) {
     if (vista === 'dia') setCursor((c) => addDays(c, dir));
@@ -186,10 +344,13 @@ export default function AdminAgendaPage() {
     else setCursor((c) => new Date(c.getFullYear(), c.getMonth() + dir, 1));
   }
 
-  const citaChip = (c: CitaRecord, compact = false) => (
+  const citaChip = (c: RegistroCita, compact = false) => (
     <button
       key={c.id}
-      onClick={() => abrirDetalle(c)}
+      onClick={(e) => {
+        e.stopPropagation();
+        abrirDetalle(c);
+      }}
       className={`block w-full truncate rounded-lg border px-2 py-1 text-left text-[11px] font-semibold shadow-sm transition hover:-translate-y-px hover:shadow ${
         c.estado === 'Cancelada'
           ? 'border-rose-200 bg-rose-50 text-rose-700 line-through decoration-rose-300'
@@ -211,7 +372,9 @@ export default function AdminAgendaPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
-          <p className="mt-1 text-sm text-ink/50">{t.subtitle(filtradas.length)}</p>
+          <p className="mt-1 text-sm text-ink/50">
+            {esReal ? `${filtradas.length} ${lang === 'es' ? 'citas · datos reales' : 'appointments · live data'}` : t.subtitle(filtradas.length)}
+          </p>
         </div>
         <button
           onClick={abrirModalNuevaCita}
@@ -221,6 +384,16 @@ export default function AdminAgendaPage() {
           {t.newCita}
         </button>
       </div>
+
+      {errorCarga && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCarga}</p>}
+      {aviso && (
+        <p
+          role="status"
+          className={`fixed bottom-6 right-6 z-[60] max-w-sm rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-lg ${aviso.error ? 'bg-rose-600' : 'bg-emerald-600'}`}
+        >
+          {aviso.texto}
+        </p>
+      )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[260px_1fr]">
         {/* Filtros */}
@@ -365,7 +538,7 @@ export default function AdminAgendaPage() {
             <div className="grid grid-cols-7 gap-2">
               {Array.from({ length: 7 }, (_, i) => addDays(startOfWeek(cursor), i)).map((d) => {
                 const iso = toISO(d);
-                const esHoy = iso === AGENDA_HOY;
+                const esHoy = iso === HOY;
                 const delDia = filtradas.filter((c) => c.fechaISO === iso).sort((a, b) => a.hora.localeCompare(b.hora));
                 return (
                   <div
@@ -399,13 +572,22 @@ export default function AdminAgendaPage() {
                     const d = addDays(gridStart, i);
                     const iso = toISO(d);
                     const enMes = d.getMonth() === cursor.getMonth();
-                    const esHoy = iso === AGENDA_HOY;
+                    const esHoy = iso === HOY;
                     const delDia = filtradas.filter((c) => c.fechaISO === iso).sort((a, b) => a.hora.localeCompare(b.hora));
                     return (
-                      <button
+                      <div
                         key={iso}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => { setCursor(d); setVista('dia'); }}
-                        className={`min-h-[92px] border-b border-r border-brand-50 p-1.5 text-left align-top last:border-r-0 hover:bg-brand-50/40 ${
+                        onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setCursor(d);
+                            setVista('dia');
+                          }
+                        }}
+                        className={`min-h-[92px] cursor-pointer border-b border-r border-brand-50 p-1.5 text-left align-top last:border-r-0 hover:bg-brand-50/40 ${
                           enMes ? '' : 'bg-ink/[0.02] text-ink/30'
                         }`}
                       >
@@ -418,7 +600,7 @@ export default function AdminAgendaPage() {
                             <p className="px-1 text-[10px] font-semibold text-ink/40">+{delDia.length - 2} {t.more}</p>
                           )}
                         </div>
-                      </button>
+                      </div>
                     );
                   });
                 })()}
@@ -436,8 +618,16 @@ export default function AdminAgendaPage() {
                 <p className="font-display text-lg font-semibold text-ink">{seleccion.paciente}</p>
                 <p className="text-xs text-ink/50">{seleccion.correo}</p>
               </div>
-              <StatusBadge tone={ESTADO_TONE[seleccion.estado]}>{t.estados[seleccion.estado]}</StatusBadge>
+              <StatusBadge tone={ESTADO_TONE[seleccion.estado]}>
+                {(seleccion.estadoBase && ETIQUETA_BASE[seleccion.estadoBase]) ?? t.estados[seleccion.estado]}
+              </StatusBadge>
             </div>
+
+            {esReal && seleccion.precio !== undefined && (
+              <p className="rounded-2xl bg-brand-50/60 px-3 py-2 text-xs text-ink/60">
+                Precio USD {seleccion.precio} · {seleccion.saldo ? `saldo pendiente USD ${seleccion.saldo}` : 'pagada'}
+              </p>
+            )}
 
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
@@ -484,8 +674,9 @@ export default function AdminAgendaPage() {
                 </div>
               </div>
               <button
-                onClick={guardarReprogramacion}
-                className="mt-3 w-full rounded-xl bg-brand-gradient py-2 text-xs font-bold text-white shadow-soft"
+                onClick={() => void guardarReprogramacion()}
+                disabled={procesando || (esReal && ['Cancelada', 'Completada', 'No asistió'].includes(seleccion.estado))}
+                className="mt-3 w-full rounded-xl bg-brand-gradient py-2 text-xs font-bold text-white shadow-soft disabled:opacity-50"
               >
                 {t.save}
               </button>
@@ -499,9 +690,9 @@ export default function AdminAgendaPage() {
             )}
 
             <div className="flex flex-wrap gap-2 border-t border-brand-100 pt-3">
-              {seleccion.estado !== 'Completada' && (
+              {(esReal ? seleccion.estado === 'Programada' : seleccion.estado !== 'Completada') && (
                 <button
-                  onClick={() => cambiarEstado(seleccion.id, 'Completada')}
+                  disabled={procesando} onClick={() => void cambiarEstado(seleccion.id, 'Completada')}
                   className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
                 >
                   {t.complete}
@@ -509,15 +700,15 @@ export default function AdminAgendaPage() {
               )}
               {seleccion.estado === 'Programada' && (
                 <button
-                  onClick={() => cambiarEstado(seleccion.id, 'No asistió')}
+                  disabled={procesando} onClick={() => void cambiarEstado(seleccion.id, 'No asistió')}
                   className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700 hover:bg-amber-100"
                 >
                   {t.markNoShow}
                 </button>
               )}
-              {seleccion.estado !== 'Cancelada' && (
+              {(esReal ? seleccion.estado === 'Programada' : seleccion.estado !== 'Cancelada') && (
                 <button
-                  onClick={() => cambiarEstado(seleccion.id, 'Cancelada')}
+                  disabled={procesando} onClick={() => void cambiarEstado(seleccion.id, 'Cancelada')}
                   className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100"
                 >
                   {t.cancel}
@@ -541,6 +732,116 @@ export default function AdminAgendaPage() {
           title={lang === 'es' ? 'Nueva cita' : 'New appointment'}
           onClose={() => setModalNuevaCita(false)}
         >
+          {esReal ? (
+          <div className="space-y-4">
+            <p className="rounded-2xl bg-brand-50 px-3 py-2 text-xs leading-relaxed text-ink/60">
+              Para pacientes que ya tienen cuenta. La cita queda pendiente de pago (puede pagarla desde su portal) y se valida el horario de la
+              profesional como en la reserva del sitio.
+            </p>
+            <div>
+              <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">Correo de la cuenta del paciente</label>
+              <input
+                type="email"
+                value={formReal.correo}
+                onChange={(e) => setFormReal((f) => ({ ...f, correo: e.target.value }))}
+                placeholder="email@ejemplo.com"
+                className="h-9 w-full rounded-xl border border-brand-200 px-3 text-sm text-ink outline-none focus:border-brand-400"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">Profesional</label>
+                <select
+                  value={formReal.profesionalId}
+                  onChange={(e) => setFormReal((f) => ({ ...f, profesionalId: Number(e.target.value), servicioId: 0 }))}
+                  className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-sm text-ink outline-none"
+                >
+                  {(catalogo?.profesionales ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">Servicio</label>
+                <select
+                  value={formReal.servicioId || serviciosDeProf[0]?.id || 0}
+                  onChange={(e) => setFormReal((f) => ({ ...f, servicioId: Number(e.target.value) }))}
+                  className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-sm text-ink outline-none"
+                >
+                  {serviciosDeProf.map((sv) => <option key={sv.id} value={sv.id}>{sv.nombre}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">Modalidad</label>
+                <select
+                  value={formReal.modalidadId}
+                  onChange={(e) => setFormReal((f) => ({ ...f, modalidadId: Number(e.target.value) }))}
+                  className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-sm text-ink outline-none"
+                >
+                  <option value={idModalidad('virtual')}>Online</option>
+                  <option value={idModalidad('presencial')}>Presencial</option>
+                </select>
+              </div>
+              {esPresencialReal && (
+                <div>
+                  <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">Sede</label>
+                  <select
+                    value={formReal.lugarId}
+                    onChange={(e) => setFormReal((f) => ({ ...f, lugarId: Number(e.target.value) }))}
+                    className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-sm text-ink outline-none"
+                  >
+                    {(catalogo?.lugares ?? []).map((l) => <option key={l.id} value={l.id}>{l.nombre}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">Fecha</label>
+                <input
+                  type="date"
+                  value={formReal.fechaISO}
+                  min={hoyLocalISO()}
+                  onChange={(e) => setFormReal((f) => ({ ...f, fechaISO: e.target.value }))}
+                  className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-xs text-ink outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">Hora</label>
+                <input
+                  type="time"
+                  value={formReal.hora}
+                  onChange={(e) => setFormReal((f) => ({ ...f, hora: e.target.value }))}
+                  className="h-9 w-full rounded-xl border border-brand-200 bg-white px-2 text-xs text-ink outline-none"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-ink/50">
+              {(() => {
+                const tarifa =
+                  tarifaReal ??
+                  catalogo?.tarifas.find((x) => x.servicioId === (serviciosDeProf[0]?.id ?? 0) && x.modalidadId === formReal.modalidadId);
+                return tarifa ? `Duración ${tarifa.duracion} min · precio USD ${tarifa.precio}` : 'Ese servicio no se ofrece en esta modalidad.';
+              })()}
+            </p>
+            {errorNueva && <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600">{errorNueva}</p>}
+            <div className="flex gap-2 border-t border-brand-100 pt-3">
+              <button
+                onClick={() => setModalNuevaCita(false)}
+                className="flex-1 rounded-xl border border-brand-100 py-2.5 text-sm font-bold text-ink/60 hover:bg-brand-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={crearCita}
+                disabled={procesando}
+                className="flex-1 rounded-xl bg-brand-gradient py-2.5 text-sm font-bold text-white shadow-soft hover:opacity-90 disabled:opacity-60"
+              >
+                Crear cita
+              </button>
+            </div>
+          </div>
+          ) : (
           <div className="space-y-4">
             {/* Paciente */}
             <div className="grid grid-cols-2 gap-3">
@@ -686,6 +987,7 @@ export default function AdminAgendaPage() {
               </button>
             </div>
           </div>
+          )}
         </AdminModal>
       )}
     </AdminLayout>

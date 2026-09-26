@@ -244,3 +244,76 @@ export function estadoMonedaAdmin(codigo: string, activa: boolean) {
 export function registrarTasaAdmin(codigo: string, tasa: number) {
   return rpcAdmin<null>('admin_registrar_tasa', { p_codigo: codigo, p_tasa: tasa });
 }
+
+// ── Agenda (migración 043) ──
+
+export type EstadoCitaBase = 'pendiente_pago' | 'parcialmente_pagada' | 'confirmada' | 'completada' | 'cancelada' | 'reprogramada' | 'no_asistio';
+
+export interface CitaAdmin {
+  id: string;
+  fecha: string;
+  hora: string;
+  duracion: number;
+  paciente: string | null;
+  correo: string | null;
+  servicio: string | null;
+  servicioId: number;
+  profesional: string | null;
+  profesionalId: number;
+  modalidad: string | null;
+  lugar: string | null;
+  lugarId: number | null;
+  estado: EstadoCitaBase;
+  precio: number;
+  saldo: number;
+  notas: string | null;
+}
+
+export interface AgendaAdmin {
+  citas: CitaAdmin[];
+  profesionales: { id: number; nombre: string }[];
+  servicios: { id: number; nombre: string }[];
+  lugares: { id: number; nombre: string }[];
+  modalidades: { id: number; nombre: string }[];
+  tarifas: { servicioId: number; modalidadId: number; duracion: number; precio: number }[];
+  ofrece: { profesionalId: number; servicioId: number }[];
+}
+
+export async function cargarAgendaAdmin(): Promise<Result<AgendaAdmin>> {
+  const res = await rpcAdmin<AgendaAdmin>('admin_agenda');
+  if (res.error) return fail(res.error);
+  const a = res.data;
+  return ok({
+    ...a,
+    citas: (a.citas ?? []).map((c) => ({ ...c, precio: aUsd(c.precio), saldo: aUsd(c.saldo) })),
+    tarifas: (a.tarifas ?? []).map((t) => ({ ...t, precio: aUsd(t.precio) })),
+  });
+}
+
+// Estado (completada / no_asistio / cancelada) y/o nueva fecha y hora.
+export function actualizarCitaAdmin(
+  citaId: string,
+  cambios: { estado?: 'completada' | 'no_asistio' | 'cancelada'; fecha?: string; hora?: string; motivo?: string }
+) {
+  return rpcAdmin<null>('admin_actualizar_cita', {
+    p_cita_id: citaId,
+    p_estado: cambios.estado ?? null,
+    p_fecha: cambios.fecha ?? null,
+    p_hora: cambios.hora ?? null,
+    p_motivo: cambios.motivo ?? null,
+  });
+}
+
+export function crearCitaAdmin(datos: {
+  correo: string; servicioId: number; profesionalId: number; modalidadId: number; lugarId: number | null; fecha: string; hora: string;
+}) {
+  return rpcAdmin<string>('admin_crear_cita', {
+    p_correo: datos.correo,
+    p_servicio_id: datos.servicioId,
+    p_profesional_id: datos.profesionalId,
+    p_modalidad_id: datos.modalidadId,
+    p_lugar_id: datos.lugarId,
+    p_fecha: datos.fecha,
+    p_hora: datos.hora,
+  });
+}
