@@ -22,6 +22,7 @@ const text = {
     breadcrumbHome: 'Inicio', breadcrumbCurrent: 'Agendar una cita',
     title: 'Agenda tu cita', subtitle: 'Reserva en unos minutos: elige el servicio, el profesional y el horario que mejor te acomode.',
     steps: ['Servicio', 'Profesional', 'Modalidad', 'Fecha y hora', 'Tus datos', 'Pago'],
+    retomada: 'Retomamos tu reserva donde la dejaste.', empezarNuevo: 'Empezar de nuevo',
     atras: 'Atrás', continuar: 'Continuar',
     paso1Sub: 'Elige el servicio que se ajusta a lo que buscas.',
     paso2Sub: 'Elige con quién quieres tener tu sesión.',
@@ -64,6 +65,7 @@ const text = {
     breadcrumbHome: 'Home', breadcrumbCurrent: 'Book an appointment',
     title: 'Book your session', subtitle: 'Book in a few minutes: choose the service, the professional, and the time that suits you best.',
     steps: ['Service', 'Professional', 'Mode', 'Date & time', 'Your info', 'Payment'],
+    retomada: 'We picked up your booking where you left it.', empezarNuevo: 'Start over',
     atras: 'Back', continuar: 'Continue',
     paso1Sub: 'Choose the service that fits what you need.',
     paso2Sub: 'Choose who you want your session with.',
@@ -138,9 +140,21 @@ function formatearFechaLarga(fechaISO: string, language: 'es' | 'en') {
 // NO se guardan datos de la tarjeta ni la contraseña, esos siempre se
 // vuelven a pedir. Se borra apenas la reserva queda confirmada (paso 7),
 // ya que a partir de ahí la cita real vive en InstructorAgendaContext.
+// Caduca a las 24 h o si la fecha elegida ya pasó: así nadie cae en el paso
+// de pago de una reserva vieja al pulsar "Agendar una cita" en el Home.
 const PROGRESO_KEY = 'psiqueAgendarProgreso';
+const PROGRESO_VIGENCIA_MS = 24 * 60 * 60 * 1000;
+
+function limpiarProgreso() {
+  try {
+    localStorage.removeItem(PROGRESO_KEY);
+  } catch {
+    // localStorage no disponible; no hay progreso que limpiar.
+  }
+}
 
 interface ProgresoGuardado {
+  guardadoEn?: number;
   paso: number;
   servicioKey: string | null;
   profesionalKey: string | null;
@@ -159,8 +173,15 @@ function leerProgresoGuardado(): ProgresoGuardado | null {
     const raw = localStorage.getItem(PROGRESO_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && typeof parsed.paso === 'number') return parsed as ProgresoGuardado;
-    return null;
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.paso !== 'number') return null;
+    const progreso = parsed as ProgresoGuardado;
+    const hoy = new Date().toLocaleDateString('en-CA');
+    const vencido = !progreso.guardadoEn || Date.now() - progreso.guardadoEn > PROGRESO_VIGENCIA_MS;
+    if (vencido || (progreso.fechaISO && progreso.fechaISO < hoy)) {
+      limpiarProgreso();
+      return null;
+    }
+    return progreso;
   } catch {
     return null;
   }
@@ -199,6 +220,8 @@ export default function AgendarCitaPage() {
         : 1;
 
   const [paso, setPaso] = useState(pasoInicial); // 1..6, 7 = confirmación
+  // Aviso cuando se retoma una reserva a medias (con opción de empezar de nuevo).
+  const [retomada, setRetomada] = useState(pasoInicial > 1 && progresoAplicable !== null);
   const [servicioKey, setServicioKey] = useState<string | null>(servicioDesdeUrl ?? progresoAplicable?.servicioKey ?? null);
   const [profesionalKey, setProfesionalKey] = useState<string | null>(progresoAplicable?.profesionalKey ?? null);
   const [modalidad, setModalidad] = useState<Modalidad | null>(progresoAplicable?.modalidad ?? null);
@@ -297,12 +320,24 @@ export default function AgendarCitaPage() {
   useEffect(() => {
     if (paso >= 7) return;
     try {
-      const progreso: ProgresoGuardado = { paso, servicioKey, profesionalKey, modalidad, sedeKey, fechaISO, hora, nombre, correo, telefono, crearCuenta };
+      const progreso: ProgresoGuardado = { guardadoEn: Date.now(), paso, servicioKey, profesionalKey, modalidad, sedeKey, fechaISO, hora, nombre, correo, telefono, crearCuenta };
       localStorage.setItem(PROGRESO_KEY, JSON.stringify(progreso));
     } catch {
       // localStorage no disponible; el progreso solo vive en memoria durante esta visita.
     }
   }, [paso, servicioKey, profesionalKey, modalidad, sedeKey, fechaISO, hora, nombre, correo, telefono, crearCuenta]);
+
+  function empezarDeNuevo() {
+    limpiarProgreso();
+    setServicioKey(servicioDesdeUrl);
+    setProfesionalKey(null);
+    setModalidad(null);
+    setSedeKey(null);
+    setFechaISO(null);
+    setHora(null);
+    setRetomada(false);
+    irA(1);
+  }
 
   function irA(pasoDestino: number) {
     setPaso(pasoDestino);
@@ -372,6 +407,7 @@ export default function AgendarCitaPage() {
         setContrasena('');
         setConfirmarContrasena('');
         setCitaConfirmada({ id: res.data.cita_id, correo: correo.trim(), cuentaCreada: invitadoReal });
+        limpiarProgreso();
         irA(7);
       } else if (res.error?.code === 'account_exists') {
         setCuentaExiste(true);
@@ -409,11 +445,7 @@ export default function AgendarCitaPage() {
       });
       setCitaConfirmada({ id, correo: correo.trim(), cuentaCreada });
       setPagando(false);
-      try {
-        localStorage.removeItem(PROGRESO_KEY);
-      } catch {
-        // localStorage no disponible; no hay progreso que limpiar.
-      }
+      limpiarProgreso();
       irA(7);
     }, 900);
   }
@@ -466,6 +498,14 @@ export default function AgendarCitaPage() {
           )}
 
           <div className="mx-auto max-w-5xl">
+          {retomada && paso <= 6 && (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brand-100 bg-brand-50/70 px-4 py-3 text-sm text-ink/70">
+              <span>{t.retomada}</span>
+              <button onClick={empezarDeNuevo} className="rounded-full border border-brand-300 bg-white px-4 py-1.5 text-xs font-bold text-brand-700 hover:bg-brand-50">
+                {t.empezarNuevo}
+              </button>
+            </div>
+          )}
           {paso <= 6 && (
           <div className="grid gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
           <div className="min-w-0">

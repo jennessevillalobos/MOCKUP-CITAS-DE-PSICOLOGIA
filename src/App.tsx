@@ -65,6 +65,7 @@ import { AdminAuthProvider } from '@/context/AdminAuthContext';
 import { AdminLanguageProvider } from '@/context/AdminLanguageContext';
 import { SiteLanguageProvider } from '@/context/SiteLanguageContext';
 import { DialogoProvider } from '@/context/DialogoContext';
+import ScrollToTop from '@/components/site/ScrollToTop';
 
 function App() {
   return (
@@ -73,6 +74,7 @@ function App() {
     <SiteAuthProvider>
     <AdminLanguageProvider>
     <AdminAuthProvider>
+      <ScrollToTop />
       <Routes>
         <Route path="/" element={<HomePage />} />
          <Route path="/servicios" element={<ServicesPage />} />

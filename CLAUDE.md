@@ -66,6 +66,7 @@ El working tree en Windows usa CRLF, pero lo commiteado en `main` está en LF. E
 - **Panel admin conectado** (hoy 100 % demo): usuarios, pagos, moderación de reseñas, mensajes de contacto, reportes… por fases.
 - **Cuentas para las demás profesionales** (hoy solo Ana tiene contraseña) y reasignar productos / cursos.
 - **Limpiar los datos de prueba** marcados QA (la usuaria pidió NO borrarlos todavía).
+- **Cloudinary pendiente de configurar**: la cuenta de Cloudinary pide confirmar el correo y la usuaria aún no pudo entrar a ese Gmail. Cuando lo confirme: cargar `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` en Supabase → Edge Functions → Secrets y probar una subida real (foto de perfil, portada de curso y de producto) y que un paciente no pueda cambiar portadas ajenas. El código ya está listo (commit 85f9172).
 
 ## Cómo se construye este proyecto (convenciones de trabajo)
 
