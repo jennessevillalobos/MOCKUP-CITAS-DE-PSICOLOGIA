@@ -63,7 +63,7 @@ export default function InstructorPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
 
-  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['dash'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
+  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['dash'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'productos', 'perfil']);
   const { citas, hoy } = useInstructorAgenda();
   const { cursos, modulosPorCurso, metaCursos } = useInstructorCourses();
   const { clases, hoy: hoyVivo } = useInstructorLiveClasses();

@@ -134,7 +134,7 @@ export default function ClasesVivoPage() {
   const { cursos, metaCursos } = useInstructorCourses();
   const { citas } = useInstructorAgenda();
 
-  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['vivo'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
+  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['vivo'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'productos', 'perfil']);
 
   const [vista, setVista] = useState<Vista>('lista');
   const [tab, setTab] = useState<Tab>('agenda');

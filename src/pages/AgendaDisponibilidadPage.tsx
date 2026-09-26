@@ -153,7 +153,7 @@ export default function AgendaDisponibilidadPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
   const dialogo = useDialogo();
-  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['agenda'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
+  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['agenda'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'productos', 'perfil']);
 
   const { horarioSemanal, configSesiones, bloqueos, enBase, errorAgenda, actualizarDia, actualizarConfigSesiones, guardarHorario, agregarBloqueo, quitarBloqueo } = useInstructorSchedule();
   const { citas, hoy, reagendarCita, cambiarEstado } = useInstructorAgenda();

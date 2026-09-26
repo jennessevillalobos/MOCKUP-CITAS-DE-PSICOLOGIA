@@ -33,7 +33,7 @@ export default function MisCursosPage() {
   const t = text[language];
   const { cursos, actualizarInfo, metaCursos, cargando, errorCursos } = useInstructorCourses();
 
-  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['cursos'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
+  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['cursos'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'productos', 'perfil']);
 
   const publicados = metaCursos.filter((m) => cursos[m.key]?.estado === 'publicado').length;
   const borradores = metaCursos.length - publicados;

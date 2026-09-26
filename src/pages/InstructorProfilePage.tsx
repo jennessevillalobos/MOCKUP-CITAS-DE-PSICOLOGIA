@@ -140,7 +140,7 @@ export default function InstructorProfilePage() {
   const navItems = buildInstructorNav(
     INSTRUCTOR_NAV_LABELS,
     ['perfil'],
-    ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']
+    ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'productos', 'perfil']
   );
 
   function mostrarGuardado(mensaje?: string) {

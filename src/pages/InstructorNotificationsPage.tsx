@@ -35,7 +35,7 @@ const tipoIcono: Record<TipoNotifInstructor, typeof CalendarDays> = {
 export default function InstructorNotificationsPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
-  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['notif'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
+  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['notif'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'productos', 'perfil']);
 
   const { notificaciones, marcarLeida, marcarTodasLeidas, errorNotificaciones } = useInstructorNotifications();
   const noLeidas = notificaciones.filter((n) => !n.leida).length;

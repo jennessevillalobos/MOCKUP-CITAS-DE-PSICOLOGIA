@@ -30,6 +30,7 @@ import InstructorPage from '@/pages/InstructorPage';
 import ConstructorCursosPage from '@/pages/ConstructorCursosPage';
 import MisCitasPage from '@/pages/MisCitasPage';
 import MisCursosPage from '@/pages/MisCursosPage';
+import MisProductosPage from '@/pages/MisProductosPage';
 import ClasesVivoPage from '@/pages/ClasesVivoPage';
 import EvaluacionesPage from '@/pages/EvaluacionesPage';
 import InstructorNotificationsPage from '@/pages/InstructorNotificationsPage';
@@ -210,6 +211,14 @@ function App() {
               <InstructorAgendaProvider>
                 <MisCitasPage />
               </InstructorAgendaProvider>
+            </ProtectedSiteRoute>
+          }
+        />
+        <Route
+          path="/instructor/productos"
+          element={
+            <ProtectedSiteRoute rol="profesional">
+              <MisProductosPage />
             </ProtectedSiteRoute>
           }
         />

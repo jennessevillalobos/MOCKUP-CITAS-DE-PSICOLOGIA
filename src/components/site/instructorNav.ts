@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, CalendarDays, GraduationCap, Wrench, ClipboardCheck, CalendarClock, Radio, Bell, UserCog, type LucideIcon,
+  LayoutDashboard, CalendarDays, GraduationCap, Wrench, ClipboardCheck, CalendarClock, Radio, Bell, UserCog, Package, type LucideIcon,
 } from 'lucide-react';
 import type { PortalNavItem } from '@/components/site/PortalLayout';
 
@@ -14,6 +14,7 @@ export interface InstructorNavLabels {
   evaluaciones: string;
   agenda: string;
   clasesEnVivo: string;
+  misProductos: string;
   notificaciones: string;
   miPerfil: string;
 }
@@ -22,12 +23,12 @@ export const INSTRUCTOR_NAV_LABELS: { es: InstructorNavLabels; en: InstructorNav
   es: {
     dashboard: 'Panel',
     misCitas: 'Mis citas', misCursos: 'Mis cursos', constructor: 'Constructor de cursos', evaluaciones: 'Evaluaciones',
-    agenda: 'Agenda / Disponibilidad', clasesEnVivo: 'Clases en vivo', notificaciones: 'Notificaciones', miPerfil: 'Mi perfil',
+    agenda: 'Agenda / Disponibilidad', clasesEnVivo: 'Clases en vivo', misProductos: 'Mis productos', notificaciones: 'Notificaciones', miPerfil: 'Mi perfil',
   },
   en: {
     dashboard: 'Dashboard',
     misCitas: 'My appointments', misCursos: 'My courses', constructor: 'Course builder', evaluaciones: 'Assessments',
-    agenda: 'Schedule / Availability', clasesEnVivo: 'Live classes', notificaciones: 'Notifications', miPerfil: 'My profile',
+    agenda: 'Schedule / Availability', clasesEnVivo: 'Live classes', misProductos: 'My products', notificaciones: 'Notifications', miPerfil: 'My profile',
   },
 };
 
@@ -39,6 +40,7 @@ const ROUTES: Partial<Record<string, string>> = {
   evaluaciones: '/instructor/evaluaciones',
   agenda: '/instructor/agenda',
   vivo: '/instructor/vivo',
+  productos: '/instructor/productos',
   notif: '/instructor/notificaciones',
   perfil: '/instructor/perfil',
 };
@@ -61,6 +63,7 @@ export function buildInstructorNav(labels: { es: InstructorNavLabels; en: Instru
     { key: 'evaluaciones', label: 'evaluaciones', icon: ClipboardCheck, disponible: disponibles.includes('evaluaciones') },
     { key: 'agenda', label: 'agenda', icon: CalendarClock, disponible: disponibles.includes('agenda') },
     { key: 'vivo', label: 'clasesEnVivo', icon: Radio, disponible: disponibles.includes('vivo') },
+    { key: 'productos', label: 'misProductos', icon: Package, disponible: disponibles.includes('productos') },
     { key: 'notif', label: 'notificaciones', icon: Bell, disponible: disponibles.includes('notif') },
     { key: 'perfil', label: 'miPerfil', icon: UserCog, disponible: disponibles.includes('perfil') },
   ];

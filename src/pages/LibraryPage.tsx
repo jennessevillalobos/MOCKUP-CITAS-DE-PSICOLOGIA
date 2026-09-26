@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import {
   ArrowLeft, Play, Search, Lock, ShieldCheck, ChevronLeft, ChevronRight, Minus, Plus, Bookmark, Loader2
 } from 'lucide-react';
@@ -12,6 +12,9 @@ import { useDialogo } from '@/context/DialogoContext';
 import { Link } from 'react-router-dom';
 import { cargarMiBiblioteca, urlArchivoProducto, type ItemBiblioteca } from '@/lib/api/productosEstudiante';
 
+// pdf.js solo se descarga al abrir un libro.
+const LectorPdf = lazy(() => import('@/components/site/LectorPdf'));
+
 type Vista = 'lista' | 'video' | 'libro';
 type Tab = 'videos' | 'libros';
 
@@ -23,7 +26,7 @@ const text = {
     comprado: 'Comprado', ver: 'Ver', leer: 'Leer', paginas: 'pág.',
     volverBiblioteca: 'Volver a la biblioteca',
     protegidoVideo: 'Reproducción protegida · sin descarga · marca de agua con tu correo',
-    protegidoLibro: 'Contenido protegido · sin descarga · marca de agua con tu correo',
+    protegidoLibro: 'Contenido protegido · marca de agua con tu correo',
     datosCompra: 'Datos de compra', comprado2: 'Comprado', orden: 'Orden', precio: 'Precio', metodo: 'Método', formato: 'Formato',
     acceso: 'Acceso', deVida: 'De por vida',
     descargaBloqueada: 'Descarga no permitida', descargarComprobante: 'Descargar comprobante de compra',
@@ -38,7 +41,7 @@ const text = {
     comprado: 'Owned', ver: 'Watch', leer: 'Read', paginas: 'pp',
     volverBiblioteca: 'Back to library',
     protegidoVideo: 'Protected streaming · no download · watermark with your email',
-    protegidoLibro: 'Protected content · no download · watermark with your email',
+    protegidoLibro: 'Protected content · watermark with your email',
     datosCompra: 'Purchase details', comprado2: 'Purchased', orden: 'Order', precio: 'Price', metodo: 'Method', formato: 'Format',
     acceso: 'Access', deVida: 'Lifetime',
     descargaBloqueada: 'Download disabled', descargarComprobante: 'Download receipt',
@@ -52,9 +55,12 @@ type Textos = (typeof text)['es'] | (typeof text)['en'];
 
 // Con sesión real: compras reales (mi_biblioteca). Los archivos se abren con
 // un enlace temporal del bucket privado `productos`.
-function BibliotecaReal({ tab, busqueda, t, language }: { tab: Tab; busqueda: string; t: Textos; language: 'es' | 'en' }) {
+function BibliotecaReal({ tab, busqueda, t, language, correo }: { tab: Tab; busqueda: string; t: Textos; language: 'es' | 'en'; correo: string }) {
   const [items, setItems] = useState<ItemBiblioteca[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Libro o video abierto dentro de la página (no en otra pestaña: algunos
+  // navegadores descargan el PDF en vez de mostrarlo).
+  const [visor, setVisor] = useState<{ item: ItemBiblioteca; url: string } | null>(null);
 
   useEffect(() => {
     void cargarMiBiblioteca().then((res) => (res.error ? setError(res.error.message) : setItems(res.data)));
@@ -62,20 +68,49 @@ function BibliotecaReal({ tab, busqueda, t, language }: { tab: Tab; busqueda: st
 
   async function abrir(item: ItemBiblioteca, descargar: boolean) {
     if (!item.archivo) return;
-    // La pestaña se abre antes del await para que el navegador no la bloquee.
-    const ventana = descargar ? null : window.open('', '_blank');
     const res = await urlArchivoProducto(item.archivo, descargar);
-    if (res.error) {
-      ventana?.close();
-      setError(res.error.message);
-      return;
-    }
-    if (ventana) ventana.location.href = res.data;
-    else window.location.href = res.data;
+    if (res.error) return setError(res.error.message);
+    if (descargar) window.location.href = res.data;
+    else setVisor({ item, url: res.data });
   }
 
   if (error) return <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</p>;
   if (!items) return <p className="text-sm text-ink/45">{t.cargando}</p>;
+
+  if (visor) {
+    const { item } = visor;
+    return (
+      <div>
+        <button onClick={() => setVisor(null)} className="mb-4 flex items-center gap-1.5 text-sm text-ink/50 hover:text-ink">
+          <ArrowLeft size={15} /> {t.volverBiblioteca}
+        </button>
+        <h2 className="mb-3 font-display text-xl font-semibold text-ink">{item.titulo}</h2>
+        {item.tipo === 'video' ? (
+          <video
+            src={visor.url}
+            controls
+            controlsList={item.descargaPermitida ? undefined : 'nodownload'}
+            onContextMenu={(e) => e.preventDefault()}
+            className="aspect-video w-full rounded-2xl bg-black shadow-lift"
+          />
+        ) : (
+          <Suspense fallback={<p className="text-sm text-ink/45">{t.cargando}</p>}>
+            <LectorPdf url={visor.url} marca={correo} language={language} />
+          </Suspense>
+        )}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-ink/45">
+          <span className="flex items-center gap-2">
+            <ShieldCheck size={14} className="text-brand-600" /> {item.tipo === 'video' ? t.protegidoVideo : t.protegidoLibro}
+          </span>
+          {item.descargaPermitida && (
+            <button onClick={() => void abrir(item, true)} className="rounded-full border border-brand-200 px-4 py-1.5 text-xs font-semibold text-ink hover:bg-brand-50">
+              {t.descargar}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const lista = items
     .filter((i) => (tab === 'videos' ? i.tipo === 'video' : i.tipo !== 'video'))
@@ -222,7 +257,7 @@ export default function LibraryPage() {
           </div>
 
           {esSesionReal ? (
-            <BibliotecaReal tab={tab} busqueda={busqueda} t={t} language={language} />
+            <BibliotecaReal tab={tab} busqueda={busqueda} t={t} language={language} correo={correo} />
           ) : tab === 'videos' ? (
             <div className="grid grid-cols-2 gap-5 lg:grid-cols-3">
               {videosFiltrados.map((v) => (

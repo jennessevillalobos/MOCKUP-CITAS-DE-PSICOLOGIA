@@ -106,7 +106,7 @@ export default function EvaluacionesPage() {
   const { cursos, modulosPorCurso, metaCursos, actualizarModulos, errorCursos } = useInstructorCourses();
   const { intentos, calificarPregunta, publicarCalificacion, errorCalificacion } = useInstructorGrading();
 
-  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['evaluaciones'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
+  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['evaluaciones'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'productos', 'perfil']);
 
   const [tab, setTab] = useState<Tab>('editor');
 

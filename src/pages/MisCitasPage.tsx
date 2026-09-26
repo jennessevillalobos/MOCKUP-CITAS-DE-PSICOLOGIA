@@ -135,7 +135,7 @@ export default function MisCitasPage() {
     }
   }
 
-  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['citas'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
+  const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['citas'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'productos', 'perfil']);
 
   const [tab, setTab] = useState<Tab>('proximas');
   const [vista, setVista] = useState<Vista>('lista');
