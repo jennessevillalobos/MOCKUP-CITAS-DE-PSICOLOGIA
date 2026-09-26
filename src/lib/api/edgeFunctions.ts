@@ -247,3 +247,33 @@ export async function rescheduleAppointment(citaId: string, nuevaFecha: string, 
     cita_id: citaId, nueva_fecha: nuevaFecha, nueva_hora: nuevaHora, motivo,
   });
 }
+
+export interface SubmitEvaluationOutput {
+  intento_id: number;
+  estado: 'pendiente' | 'calificado';
+  // null mientras haya preguntas abiertas sin calificar.
+  nota: number | null;
+  aprobado: boolean;
+  nota_minima: number;
+  numero_intento: number;
+  intentos_max: number | null;
+  correctas: number;
+  autocalificables: number;
+  retroalimentacion: { pregunta_id: number; estado: 'correcta' | 'incorrecta' | 'revision' }[] | null;
+  mensaje: string;
+}
+
+/**
+ * Envía un intento de evaluación (califica opción múltiple y V/F; las abiertas
+ * quedan pendientes para la profesional).
+ * Edge Function: `submit-evaluation`
+ */
+export async function submitEvaluation(
+  evaluacionId: number,
+  respuestas: { pregunta_id: number; opcion_id?: number; texto?: string }[],
+  tiempoTomadoMinutos: number,
+): Promise<Result<SubmitEvaluationOutput>> {
+  return callEdgeFunction<SubmitEvaluationOutput>('submit-evaluation', {
+    evaluacion_id: evaluacionId, respuestas, tiempo_tomado_minutos: tiempoTomadoMinutos,
+  });
+}

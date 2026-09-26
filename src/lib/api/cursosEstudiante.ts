@@ -172,3 +172,49 @@ export async function guardarNotaClase(claseId: number, texto: string): Promise<
   if (error) return fail(toServiceError(error));
   return ok(null);
 }
+
+// ── Evaluaciones (migración 031) ──
+
+export interface PreguntaEstudiante {
+  id: number;
+  tipo: 'opcion' | 'vf' | 'abierta';
+  texto: string;
+  puntaje: number;
+  opciones: { id: number; texto: string }[];
+}
+
+export interface IntentoEstudiante {
+  numero: number;
+  fecha: string;
+  nota: number | null;
+  aprobado: boolean;
+  estado: 'pendiente' | 'calificado';
+}
+
+export interface EvaluacionEstudiante {
+  id: number;
+  titulo: string;
+  curso: { id: number; slug: string; nombre: string };
+  moduloTitulo: string | null;
+  moduloNumero: number | null;
+  // 0 = sin límite.
+  tiempoLimiteMin: number;
+  notaMinima: number;
+  intentosMax: number | null;
+  barajar: boolean;
+  mostrarRetroalimentacion: boolean;
+  desbloqueaSiguiente: boolean;
+  bloqueado: boolean;
+  // Vacío si está bloqueada. Sin indicar la opción correcta.
+  preguntas: PreguntaEstudiante[];
+  intentos: IntentoEstudiante[];
+}
+
+export async function cargarEvaluacionEstudiante(evaluacionId: number): Promise<Result<EvaluacionEstudiante>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+
+  const { data, error } = await supabase.rpc('evaluacion_estudiante', { p_evaluacion_id: evaluacionId });
+  if (error) return fail(toServiceError(error));
+  return ok(data as EvaluacionEstudiante);
+}

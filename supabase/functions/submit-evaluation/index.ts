@@ -6,6 +6,9 @@
 // el intento con cada respuesta en public.respuestas_intento.
 // Si la evaluación tiene preguntas abiertas, el intento queda "pendiente" hasta
 // que el profesional las califica desde su panel.
+// Además exige que la evaluación esté desbloqueada (clases previas de su
+// módulo completadas; RPC evaluacion_estudiante, migración 031) y devuelve el
+// recuento de correctas y, si la evaluación lo permite, qué preguntas acertó.
 
 import { handleOptions } from '../_shared/cors.ts';
 import { jsonOk, jsonError, generateRequestId, readJson } from '../_shared/http.ts';
@@ -50,17 +53,14 @@ Deno.serve(async (req) => {
 
   if (evalErr || !evaluacion) return jsonError('not_found', 'Evaluación no encontrada.', 404, requestId);
 
-  // 3. Solo estudiantes inscritos en el curso pueden enviarla
-  const { data: inscripcion } = await serviceClient
-    .from('inscripciones')
-    .select('id')
-    .eq('usuario_id', usuarioId)
-    .eq('curso_id', evaluacion.curso_id)
-    .eq('estado', 'activa')
-    .limit(1)
-    .maybeSingle();
-
-  if (!inscripcion) return jsonError('not_enrolled', 'No estás inscrito en el curso de esta evaluación.', 403, requestId);
+  // 3. Solo estudiantes inscritos y con la evaluación desbloqueada. La RPC
+  // corre con la sesión del estudiante: valida su inscripción y calcula el bloqueo.
+  const { data: estado, error: estadoErr } = await userClient.rpc('evaluacion_estudiante', { p_evaluacion_id: body.evaluacion_id });
+  if (estadoErr || !estado) return jsonError('not_enrolled', 'No estás inscrito en el curso de esta evaluación.', 403, requestId);
+  if ((estado as { bloqueado?: boolean }).bloqueado) {
+    return jsonError('locked', 'Completa las clases del módulo antes de presentar esta evaluación.', 403, requestId);
+  }
+  const mostrarRetro = !!(estado as { mostrarRetroalimentacion?: boolean }).mostrarRetroalimentacion;
 
   // 4. Validar intentos máximos (BE-054)
   const { count: intentosPrevios, error: intentosErr } = await serviceClient
@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
 
   if (intentosErr) return jsonError('db_error', 'Error verificando intentos.', 500, requestId);
 
-  if ((intentosPrevios ?? 0) >= evaluacion.intentos_max) {
+  if (evaluacion.intentos_max && (intentosPrevios ?? 0) >= evaluacion.intentos_max) {
     return jsonError('max_attempts_reached', 'Has superado el número máximo de intentos para esta evaluación.', 403, requestId);
   }
 
@@ -99,18 +99,25 @@ Deno.serve(async (req) => {
   let puntajeTotal = 0;
   let puntajeObtenido = 0;
   let hayAbiertas = false;
+  let correctas = 0;
+  let autocalificables = 0;
+  const retro: { pregunta_id: number; estado: 'correcta' | 'incorrecta' | 'revision' }[] = [];
   const filasRespuesta = preguntas.map((q) => {
     const resp = respuestaPorPregunta.get(q.id);
     const puntaje = Number(q.puntaje ?? 1);
     puntajeTotal += puntaje;
     if (q.tipo === 'abierta') {
       hayAbiertas = true;
+      retro.push({ pregunta_id: q.id, estado: 'revision' });
       return { pregunta_id: q.id, opcion_id: null, texto: resp?.texto?.trim() || null, puntaje_obtenido: null };
     }
     const opciones = (q.opciones ?? []) as { id: number; es_correcta: boolean }[];
     const opcionValida = opciones.find((o) => o.id === resp?.opcion_id);
     const obtenido = opcionValida?.es_correcta ? puntaje : 0;
     puntajeObtenido += obtenido;
+    autocalificables += 1;
+    if (opcionValida?.es_correcta) correctas += 1;
+    retro.push({ pregunta_id: q.id, estado: opcionValida?.es_correcta ? 'correcta' : 'incorrecta' });
     return { pregunta_id: q.id, opcion_id: opcionValida?.id ?? null, texto: null, puntaje_obtenido: obtenido };
   });
 
@@ -149,6 +156,12 @@ Deno.serve(async (req) => {
     nota,
     aprobado,
     nota_minima: evaluacion.nota_minima,
+    numero_intento: intento.numero_intento,
+    intentos_max: evaluacion.intentos_max,
+    correctas,
+    autocalificables,
+    // Solo si la profesional activó "mostrar retroalimentación".
+    retroalimentacion: mostrarRetro ? retro : null,
     mensaje: hayAbiertas
       ? 'Respuestas enviadas. Tu profesional calificará las preguntas abiertas.'
       : aprobado ? '¡Felicidades, aprobaste la evaluación!' : 'No alcanzaste la nota mínima.',
