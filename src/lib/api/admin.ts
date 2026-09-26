@@ -62,3 +62,58 @@ export async function recordarSaldo(citaId: string): Promise<Result<null>> {
   if (error) return fail(toServiceError(error));
   return ok(null);
 }
+
+// ── Usuarios (migración 040) ──
+
+export type RolBase = 'estudiante' | 'instructor' | 'administrador';
+export type EstadoCuenta = 'activo' | 'inactivo' | 'bloqueado';
+
+export interface UsuarioAdmin {
+  id: string;
+  nombre: string;
+  correo: string;
+  telefono: string | null;
+  estado: EstadoCuenta;
+  creado: string;
+  ultimoAcceso: string | null;
+  roles: RolBase[];
+  // slug de la ficha de profesional vinculada, si la tiene.
+  profesional: string | null;
+}
+
+export interface ActividadUsuarioAdmin {
+  tipo: string;
+  texto: string;
+  fecha: string;
+}
+
+async function rpcAdmin<T>(nombre: string, args?: Record<string, unknown>): Promise<Result<T>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+  const { data, error } = await supabase.rpc(nombre, args);
+  if (error) return fail(toServiceError(error));
+  return ok((data ?? null) as T);
+}
+
+export async function listarUsuariosAdmin(): Promise<Result<UsuarioAdmin[]>> {
+  const res = await rpcAdmin<UsuarioAdmin[] | null>('admin_listar_usuarios');
+  return res.error ? fail(res.error) : ok(res.data ?? []);
+}
+
+export async function actividadUsuarioAdmin(usuarioId: string): Promise<Result<ActividadUsuarioAdmin[]>> {
+  const res = await rpcAdmin<ActividadUsuarioAdmin[] | null>('admin_actividad_usuario', { p_usuario_id: usuarioId });
+  return res.error ? fail(res.error) : ok(res.data ?? []);
+}
+
+export function guardarRolesAdmin(usuarioId: string, roles: RolBase[]) {
+  return rpcAdmin<null>('admin_guardar_roles', { p_usuario_id: usuarioId, p_roles: roles });
+}
+
+export function cambiarEstadoUsuario(usuarioId: string, estado: EstadoCuenta) {
+  return rpcAdmin<null>('admin_cambiar_estado', { p_usuario_id: usuarioId, p_estado: estado });
+}
+
+// Contraseña temporal que el administrador comunica a la persona.
+export function claveTemporalUsuario(usuarioId: string, clave: string) {
+  return rpcAdmin<null>('admin_clave_temporal', { p_usuario_id: usuarioId, p_clave: clave });
+}

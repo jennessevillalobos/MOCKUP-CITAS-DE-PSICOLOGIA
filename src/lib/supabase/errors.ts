@@ -29,6 +29,8 @@ function normalizeMessage(code: string, message: string): ServiceError {
       return { code, message: 'Ya existe una cuenta con ese correo.', status: 409 };
     case 'email_not_confirmed':
       return { code, message: 'Debes confirmar tu correo antes de continuar.', status: 403 };
+    case 'user_banned':
+      return { code, message: 'Esta cuenta está desactivada o bloqueada. Escríbenos si crees que es un error.', status: 403 };
     case 'row_level_security_error':
       return { code, message: 'No tienes permiso para realizar esta acción.', status: 403 };
     case '42501':

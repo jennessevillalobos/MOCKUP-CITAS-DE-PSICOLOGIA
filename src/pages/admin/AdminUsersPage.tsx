@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Mail, Phone, MoreVertical, Check, Minus, KeyRound, Lock, Unlock, Power } from 'lucide-react';
 import AdminLayout from '@/components/admin/AdminLayout';
 import StatusBadge from '@/components/admin/ui/StatusBadge';
@@ -12,6 +12,50 @@ import {
   type UserRole,
   type UserEstado,
 } from '@/data/admin/usersData';
+import { useAdminAuth } from '@/context/AdminAuthContext';
+import { useDialogo } from '@/context/DialogoContext';
+import {
+  listarUsuariosAdmin,
+  actividadUsuarioAdmin,
+  guardarRolesAdmin,
+  cambiarEstadoUsuario,
+  claveTemporalUsuario,
+  type UsuarioAdmin,
+  type RolBase,
+  type EstadoCuenta,
+} from '@/lib/api/admin';
+
+// Con Supabase: roles de la base ↔ etiquetas de la pantalla. "Visitante" =
+// cuenta sin ningún rol (no se asigna, es la ausencia de roles).
+const ROL_DESDE_BASE: Record<RolBase, UserRole> = { estudiante: 'Estudiante', instructor: 'Instructor', administrador: 'Admin' };
+const ROL_A_BASE: Partial<Record<UserRole, RolBase>> = { Estudiante: 'estudiante', Instructor: 'instructor', Admin: 'administrador' };
+const ROLES_EDITABLES_REALES: UserRole[] = ['Estudiante', 'Instructor', 'Admin'];
+const ESTADO_DESDE_BASE: Record<EstadoCuenta, UserEstado> = { activo: 'Activo', inactivo: 'Inactivo', bloqueado: 'Bloqueado' };
+const ESTADO_A_BASE: Record<UserEstado, EstadoCuenta> = { Activo: 'activo', Inactivo: 'inactivo', Bloqueado: 'bloqueado' };
+
+function fechaHora(iso: string) {
+  const d = new Date(iso);
+  const dd = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  return `${dd} · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+type RegistroUsuario = AdminUserRecord & { profesional?: string | null };
+
+function desdeBase(u: UsuarioAdmin): RegistroUsuario {
+  const roles = u.roles.map((r) => ROL_DESDE_BASE[r]).filter(Boolean);
+  return {
+    id: u.id,
+    nombre: u.nombre,
+    correo: u.correo,
+    telefono: u.telefono || '—',
+    roles: roles.length > 0 ? roles : ['Visitante'],
+    estado: ESTADO_DESDE_BASE[u.estado] ?? 'Activo',
+    creado: u.creado.slice(0, 10),
+    ultimoAcceso: u.ultimoAcceso ? fechaHora(u.ultimoAcceso) : null,
+    actividad: [],
+    profesional: u.profesional,
+  };
+}
 
 function initials(nombre: string) {
   const parts = nombre.replace(/^(Dra?\.|Lic\.)\s*/i, '').trim().split(/\s+/);
@@ -42,7 +86,13 @@ const actividadColor: Record<string, string> = {
 };
 
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<AdminUserRecord[]>(demoUsers);
+  const { esReal, user: admin } = useAdminAuth();
+  const { confirmar, pedirTexto, avisar } = useDialogo();
+  const [users, setUsers] = useState<RegistroUsuario[]>(() => (esReal ? [] : demoUsers));
+  const [cargando, setCargando] = useState(esReal);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const [actividadReal, setActividadReal] = useState<AdminUserRecord['actividad'] | null>(null);
+  const [aviso, setAviso] = useState<{ texto: string; error?: boolean } | null>(null);
   const [busqueda, setBusqueda] = useState('');
   const [filtroRol, setFiltroRol] = useState<'Todos' | UserRole>('Todos');
   const [filtroEstado, setFiltroEstado] = useState<'Todos' | UserEstado>('Todos');
@@ -53,9 +103,46 @@ export default function AdminUsersPage() {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const seleccionado = users.find((u) => u.id === seleccionadoId) || null;
+  const esMiCuenta = (u: RegistroUsuario) => esReal && !!admin && u.correo.toLowerCase() === admin.correo.toLowerCase();
+
+  function mostrarAviso(texto: string, error = false) {
+    setAviso({ texto, error });
+    window.setTimeout(() => setAviso(null), 4000);
+  }
+
+  // Modo real: lista desde la base (admin_listar_usuarios).
+  const recargar = useCallback(async () => {
+    if (!esReal) return;
+    const res = await listarUsuariosAdmin();
+    setCargando(false);
+    if (res.error) setErrorCarga(res.error.message);
+    else {
+      setErrorCarga(null);
+      setUsers(res.data.map(desdeBase));
+    }
+  }, [esReal]);
+
+  const recargarActividad = useCallback(async (id: string) => {
+    const res = await actividadUsuarioAdmin(id);
+    setActividadReal(
+      res.error
+        ? []
+        : res.data.map((a) => ({ tipo: a.tipo as AdminUserRecord['actividad'][number]['tipo'], label: a.texto, fecha: fechaHora(a.fecha) }))
+    );
+  }, []);
 
   useEffect(() => {
-    if (seleccionado) setRolesEnEdicion(seleccionado.roles);
+    void recargar();
+  }, [recargar]);
+
+  useEffect(() => {
+    if (!esReal || !seleccionadoId) return;
+    setActividadReal(null);
+    void recargarActividad(seleccionadoId);
+  }, [esReal, seleccionadoId, recargarActividad]);
+
+  useEffect(() => {
+    if (seleccionado) setRolesEnEdicion(esReal ? seleccionado.roles.filter((r) => r !== 'Visitante') : seleccionado.roles);
   }, [seleccionado?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -90,14 +177,45 @@ export default function AdminUsersPage() {
     );
   }
 
-  function cambiarEstado(id: string, estado: UserEstado, motivo: string) {
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, estado } : u)));
-    agregarActividad(id, 'seguridad', motivo);
+  async function cambiarEstado(id: string, estado: UserEstado, motivo: string) {
+    setMenuAbiertoId(null);
+    if (!esReal) {
+      setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, estado } : u)));
+      agregarActividad(id, 'seguridad', motivo);
+      return;
+    }
+    const u = users.find((x) => x.id === id);
+    if (estado !== 'Activo') {
+      const ok = await confirmar(
+        `¿${estado === 'Bloqueado' ? 'Bloquear' : 'Desactivar'} la cuenta de ${u?.nombre ?? 'esta persona'}? No podrá iniciar sesión y se cerrarán sus sesiones abiertas.`,
+        { peligro: true, textoAceptar: estado === 'Bloqueado' ? 'Bloquear' : 'Desactivar' }
+      );
+      if (!ok) return;
+    }
+    const res = await cambiarEstadoUsuario(id, ESTADO_A_BASE[estado]);
+    if (res.error) return mostrarAviso(res.error.message, true);
+    mostrarAviso(`${motivo.replace(' por un administrador', '')}: ${u?.nombre ?? ''}`);
+    await recargar();
+    if (seleccionadoId === id) void recargarActividad(id);
   }
 
-  function restablecerClave(id: string) {
-    agregarActividad(id, 'seguridad', 'Contraseña restablecida por un administrador');
+  async function restablecerClave(id: string) {
     setMenuAbiertoId(null);
+    if (!esReal) {
+      agregarActividad(id, 'seguridad', 'Contraseña restablecida por un administrador');
+      return;
+    }
+    const u = users.find((x) => x.id === id);
+    const clave = await pedirTexto(
+      `Contraseña temporal para ${u?.nombre ?? 'esta cuenta'} (mínimo 8 caracteres). Comunícasela a la persona; luego la cambia en "Mi perfil". Se cerrarán sus sesiones abiertas.`,
+      { textoAceptar: 'Asignar' }
+    );
+    if (clave === null) return;
+    if (clave.trim().length < 8) return mostrarAviso('La contraseña temporal debe tener al menos 8 caracteres.', true);
+    const res = await claveTemporalUsuario(id, clave.trim());
+    if (res.error) return mostrarAviso(res.error.message, true);
+    await avisar(`Listo: la contraseña temporal de ${u?.nombre ?? 'la cuenta'} ya funciona. Compártela por un canal privado.`);
+    if (seleccionadoId === id) void recargarActividad(id);
   }
 
   function toggleRolEnEdicion(rol: UserRole) {
@@ -105,8 +223,18 @@ export default function AdminUsersPage() {
     setGuardado(false);
   }
 
-  function guardarRoles() {
+  async function guardarRoles() {
     if (!seleccionado) return;
+    if (esReal) {
+      const roles = rolesEnEdicion.map((r) => ROL_A_BASE[r]).filter((r): r is RolBase => !!r);
+      const res = await guardarRolesAdmin(seleccionado.id, roles);
+      if (res.error) return mostrarAviso(res.error.message, true);
+      await recargar();
+      void recargarActividad(seleccionado.id);
+      setGuardado(true);
+      setTimeout(() => setGuardado(false), 1800);
+      return;
+    }
     const antes = seleccionado.roles;
     const agregados = rolesEnEdicion.filter((r) => !antes.includes(r));
     const quitados = antes.filter((r) => !rolesEnEdicion.includes(r));
@@ -129,16 +257,30 @@ export default function AdminUsersPage() {
     setTimeout(() => setGuardado(false), 1800);
   }
 
-  const permisosActuales = permisosEfectivos(rolesEnEdicion);
+  const permisosActuales = permisosEfectivos(esReal && rolesEnEdicion.length === 0 ? ['Visitante'] : rolesEnEdicion);
+  const rolesEditables = esReal ? ROLES_EDITABLES_REALES : ALL_ROLES;
+  const actividadVista = esReal ? actividadReal ?? [] : seleccionado?.actividad ?? [];
 
   return (
     <AdminLayout>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">Usuarios</h1>
-          <p className="mt-1 text-sm text-ink/50">{users.length} usuarios registrados · datos de demostración</p>
+          <p className="mt-1 text-sm text-ink/50">
+            {cargando ? 'Cargando…' : `${users.length} usuarios registrados`} · {esReal ? 'datos reales' : 'datos de demostración'}
+          </p>
         </div>
       </div>
+
+      {errorCarga && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCarga}</p>}
+      {aviso && (
+        <p
+          role="status"
+          className={`fixed bottom-6 right-6 z-[60] max-w-sm rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-lg ${aviso.error ? 'bg-rose-600' : 'bg-emerald-600'}`}
+        >
+          {aviso.texto}
+        </p>
+      )}
 
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-3 rounded-3xl border border-brand-100 bg-white p-3 shadow-soft">
@@ -208,6 +350,7 @@ export default function AdminUsersPage() {
                         {initials(u.nombre)}
                       </span>
                       <span className="font-semibold text-ink">{u.nombre}</span>
+                      {esMiCuenta(u) && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Tú</span>}
                     </div>
                   </td>
                   <td className="cursor-pointer px-5 py-3 text-ink/60" onClick={() => setSeleccionadoId(u.id)}>
@@ -242,7 +385,7 @@ export default function AdminUsersPage() {
                     >
                       <MoreVertical size={16} />
                     </button>
-                    {menuAbiertoId === u.id && (
+                    {menuAbiertoId === u.id && !esMiCuenta(u) && (
                       <div
                         ref={menuRef}
                         className="absolute right-3 top-11 z-10 w-52 overflow-hidden rounded-2xl border border-brand-100 bg-white text-left shadow-lift"
@@ -258,7 +401,7 @@ export default function AdminUsersPage() {
                         </button>
                         <button
                           onClick={() =>
-                            cambiarEstado(
+                            void cambiarEstado(
                               u.id,
                               u.estado === 'Activo' ? 'Inactivo' : 'Activo',
                               u.estado === 'Activo' ? 'Cuenta desactivada por un administrador' : 'Cuenta activada por un administrador'
@@ -271,7 +414,7 @@ export default function AdminUsersPage() {
                         </button>
                         <button
                           onClick={() =>
-                            cambiarEstado(
+                            void cambiarEstado(
                               u.id,
                               u.estado === 'Bloqueado' ? 'Activo' : 'Bloqueado',
                               u.estado === 'Bloqueado' ? 'Cuenta desbloqueada por un administrador' : 'Cuenta bloqueada por un administrador'
@@ -283,11 +426,11 @@ export default function AdminUsersPage() {
                           {u.estado === 'Bloqueado' ? 'Desbloquear' : 'Bloquear'}
                         </button>
                         <button
-                          onClick={() => restablecerClave(u.id)}
+                          onClick={() => void restablecerClave(u.id)}
                           className="flex w-full items-center gap-2 px-4 py-2.5 text-xs font-semibold text-ink hover:bg-brand-50"
                         >
                           <KeyRound size={13} />
-                          Restablecer clave
+                          {esReal ? 'Contraseña temporal' : 'Restablecer clave'}
                         </button>
                       </div>
                     )}
@@ -340,7 +483,7 @@ export default function AdminUsersPage() {
                 <span className="text-[11px] text-ink/35">Permite combinar roles</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {ALL_ROLES.map((r) => (
+                {rolesEditables.map((r) => (
                   <label
                     key={r}
                     className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-sm transition ${
@@ -357,8 +500,17 @@ export default function AdminUsersPage() {
                   </label>
                 ))}
               </div>
+              {esReal && (
+                <p className="mt-2 text-[11px] leading-relaxed text-ink/45">
+                  Sin ningún rol la cuenta queda como Visitante.
+                  {rolesEnEdicion.includes('Instructor') &&
+                    (seleccionado.profesional
+                      ? ` Vinculada a la ficha de profesional "${seleccionado.profesional}".`
+                      : ' Esta cuenta no tiene ficha de profesional: el rol Instructor no abre el panel del profesional hasta vincularla.')}
+                </p>
+              )}
               <button
-                onClick={guardarRoles}
+                onClick={() => void guardarRoles()}
                 className="focus-ring mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-brand-gradient py-2.5 text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5"
               >
                 {guardado ? (
@@ -397,7 +549,9 @@ export default function AdminUsersPage() {
             <div>
               <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-ink/40">Historial de actividad</h4>
               <ul className="space-y-3 border-l border-brand-100 pl-4">
-                {seleccionado.actividad.map((a, i) => (
+                {esReal && actividadReal === null && <li className="text-xs text-ink/40">Cargando…</li>}
+                {esReal && actividadReal?.length === 0 && <li className="text-xs text-ink/40">Sin actividad registrada.</li>}
+                {actividadVista.map((a, i) => (
                   <li key={i} className="relative">
                     <span
                       className={`absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full ${actividadColor[a.tipo] || 'bg-ink/30'}`}
@@ -410,12 +564,17 @@ export default function AdminUsersPage() {
             </div>
 
             {/* Acciones de cuenta */}
+            {esMiCuenta(seleccionado) ? (
+              <p className="rounded-2xl bg-brand-50 px-4 py-3 text-xs text-ink/55">
+                Es tu propia cuenta: desde aquí no puedes desactivarla, bloquearla ni asignarle una contraseña temporal.
+              </p>
+            ) : (
             <div>
               <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-ink/40">Acciones de cuenta</h4>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() =>
-                    cambiarEstado(
+                    void cambiarEstado(
                       seleccionado.id,
                       seleccionado.estado === 'Activo' ? 'Inactivo' : 'Activo',
                       seleccionado.estado === 'Activo' ? 'Cuenta desactivada por un administrador' : 'Cuenta activada por un administrador'
@@ -428,7 +587,7 @@ export default function AdminUsersPage() {
                 </button>
                 <button
                   onClick={() =>
-                    cambiarEstado(
+                    void cambiarEstado(
                       seleccionado.id,
                       seleccionado.estado === 'Bloqueado' ? 'Activo' : 'Bloqueado',
                       seleccionado.estado === 'Bloqueado' ? 'Cuenta desbloqueada por un administrador' : 'Cuenta bloqueada por un administrador'
@@ -440,14 +599,15 @@ export default function AdminUsersPage() {
                   {seleccionado.estado === 'Bloqueado' ? 'Desbloquear' : 'Bloquear'}
                 </button>
                 <button
-                  onClick={() => restablecerClave(seleccionado.id)}
+                  onClick={() => void restablecerClave(seleccionado.id)}
                   className="col-span-2 flex items-center justify-center gap-2 rounded-2xl border border-brand-100 py-2.5 text-sm font-semibold text-ink hover:bg-brand-50"
                 >
                   <KeyRound size={14} />
-                  Restablecer clave
+                  {esReal ? 'Contraseña temporal' : 'Restablecer clave'}
                 </button>
               </div>
             </div>
+            )}
           </div>
         </AdminModal>
       )}
