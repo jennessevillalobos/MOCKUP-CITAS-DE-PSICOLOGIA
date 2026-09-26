@@ -65,7 +65,8 @@ interface SiteAuthContextValue {
   // mapeado a la sesión, o el error del proveedor.
   loginWithPassword: (correo: string, password: string) => Promise<Result<SiteUser>>;
   registerWithPassword: (correo: string, password: string, nombre?: string, rol?: SiteRole) => Promise<Result<{ user: SiteUser; needsEmailConfirmation: boolean }>>;
-  logout: () => void;
+  // Espera a que Supabase cierre la sesión, para que al navegar no se restaure.
+  logout: () => Promise<void>;
   // Actualiza campos del perfil de la sesión activa (Mi perfil). No cambia el rol.
   // Con sesión real también los guarda en la base; devuelve el error si falla.
   updateProfile: (fields: Partial<Omit<SiteUser, 'rol'>>) => Promise<{ error: string | null }>;
@@ -214,14 +215,14 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
     [persist]
   );
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     perfilRef.current = null;
     setEsSesionReal(false);
     persist(null);
     // En modo real también se cierra la sesión de Supabase; si falla no se
     // bloquea el cierre local.
     if (realAuth) {
-      void supabaseSignOut();
+      await supabaseSignOut();
     }
   }, [persist, realAuth]);
 

@@ -5,6 +5,7 @@ import PortalLayout from '@/components/site/PortalLayout';
 import { INSTRUCTOR_NAV_LABELS, buildInstructorNav } from '@/components/site/instructorNav';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
+import { useDialogo } from '@/context/DialogoContext';
 
 type Tab = 'datos' | 'seguridad' | 'preferencias';
 
@@ -85,6 +86,7 @@ export default function InstructorProfilePage() {
   const { language, setLanguage } = useSiteLanguage();
   const navigate = useNavigate();
   const t = text[language];
+  const dialogo = useDialogo();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [tab, setTab] = useState<Tab>('datos');
@@ -181,7 +183,7 @@ export default function InstructorProfilePage() {
   async function cerrarTodas() {
     const { error: err } = await cerrarOtrasSesiones();
     if (err) return setError(err);
-    logout();
+    await logout();
     navigate('/iniciar-sesion');
   }
 
@@ -199,9 +201,9 @@ export default function InstructorProfilePage() {
     reader.readAsDataURL(file);
   }
 
-  function desactivarCuenta() {
-    if (!window.confirm(t.confirmarDesactivar)) return;
-    logout();
+  async function desactivarCuenta() {
+    if (!(await dialogo.confirmar(t.confirmarDesactivar, { peligro: true }))) return;
+    await logout();
     navigate('/');
   }
 

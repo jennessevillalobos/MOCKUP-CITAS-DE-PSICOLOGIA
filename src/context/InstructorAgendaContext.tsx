@@ -39,6 +39,8 @@ interface InstructorAgendaContextValue {
   hoy: string;
   cargando: boolean;
   errorCitas: string | null;
+  // Vuelve a leer las citas de la base (p. ej. tras aprobar un pago).
+  recargarCitas: () => Promise<void>;
   reagendarCita: (id: string, fechaISO: string, hora: string) => void;
   cambiarEstado: (id: string, estado: CitaEstado) => void;
   actualizarNotaSesion: (id: string, texto: string) => void;
@@ -69,27 +71,33 @@ export function InstructorAgendaProvider({ children }: { children: ReactNode }) 
 
   // Si la sesión real es de un profesional, sus citas y notas salen de la base.
   // Pacientes, visitantes de /agendar y el modo demo siguen con localStorage.
+  const cargarDesdeBase = useCallback(async (esVigente: () => boolean = () => true) => {
+    const perfil = await cargarPerfil();
+    if (!esVigente() || perfil.error || !perfil.data?.profesionalId) return;
+    setCargando(true);
+    const res = await cargarCitasProfesional(perfil.data.profesionalId, perfil.data.nombre ?? '');
+    if (!esVigente()) return;
+    setCargando(false);
+    if (res.error) {
+      setErrorCitas(res.error.message);
+      return;
+    }
+    pacientePorCorreo.current = res.data.pacientePorCorreo;
+    setProfesionalId(perfil.data.profesionalId);
+    setCitas(res.data.citas);
+    setNotas(res.data.notas);
+  }, []);
+
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
     let cancelado = false;
-    (async () => {
-      const perfil = await cargarPerfil();
-      if (cancelado || perfil.error || !perfil.data?.profesionalId) return;
-      setCargando(true);
-      const res = await cargarCitasProfesional(perfil.data.profesionalId, perfil.data.nombre ?? '');
-      if (cancelado) return;
-      setCargando(false);
-      if (res.error) {
-        setErrorCitas(res.error.message);
-        return;
-      }
-      pacientePorCorreo.current = res.data.pacientePorCorreo;
-      setProfesionalId(perfil.data.profesionalId);
-      setCitas(res.data.citas);
-      setNotas(res.data.notas);
-    })();
+    void cargarDesdeBase(() => !cancelado);
     return () => { cancelado = true; };
-  }, []);
+  }, [cargarDesdeBase]);
+
+  const recargarCitas = useCallback(async () => {
+    if (enBase) await cargarDesdeBase();
+  }, [enBase, cargarDesdeBase]);
 
   // Sincroniza cada cambio a localStorage — así "Mis citas" y el Dashboard
   // (montados por separado al navegar entre rutas) siempre ven el mismo
@@ -165,7 +173,7 @@ export function InstructorAgendaProvider({ children }: { children: ReactNode }) 
   return (
     <InstructorAgendaContext.Provider
       value={{
-        citas, notas, enBase, hoy: enBase ? hoyLocalISO() : AGENDA_INSTRUCTOR_HOY, cargando, errorCitas,
+        citas, notas, enBase, hoy: enBase ? hoyLocalISO() : AGENDA_INSTRUCTOR_HOY, cargando, errorCitas, recargarCitas,
         reagendarCita, cambiarEstado, actualizarNotaSesion, agregarNotaPaciente, agregarCita,
       }}
     >

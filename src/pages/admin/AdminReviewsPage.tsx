@@ -3,6 +3,7 @@ import { Star, Search, CheckCircle2, EyeOff, Trash2, MessageSquare, Filter } fro
 import AdminLayout from '@/components/admin/AdminLayout';
 import StatusBadge from '@/components/admin/ui/StatusBadge';
 import { useAdminLanguage } from '@/context/AdminLanguageContext';
+import { useDialogo } from '@/context/DialogoContext';
 
 type EstadoReseña = 'pendiente' | 'aprobada' | 'oculta';
 type TonoBadge = 'positivo' | 'neutro' | 'negativo';
@@ -72,6 +73,7 @@ function StarRating({ value }: { value: number }) {
 export default function AdminReviewsPage() {
   const { lang } = useAdminLanguage();
   const t = text[lang];
+  const dialogo = useDialogo();
 
   const [reseñas, setReseñas] = useState<Reseña[]>(demoReseñas);
   const [buscar, setBuscar] = useState('');
@@ -95,8 +97,8 @@ export default function AdminReviewsPage() {
     setReseñas(prev => prev.map(r => r.id === id ? { ...r, estado: nuevo } : r));
   }
 
-  function eliminar(id: string) {
-    if (!window.confirm(t.confirmEliminar)) return;
+  async function eliminar(id: string) {
+    if (!(await dialogo.confirmar(t.confirmEliminar, { peligro: true }))) return;
     setReseñas(prev => prev.filter(r => r.id !== id));
   }
 

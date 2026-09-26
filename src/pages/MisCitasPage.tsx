@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  CalendarDays, Clock, Video, MapPin, History, RotateCcw, XCircle, ArrowLeft, Check, Plus,
+  CalendarDays, Clock, Video, MapPin, History, RotateCcw, XCircle, ArrowLeft, Check, Plus, Receipt,
 } from 'lucide-react';
 import PortalLayout from '@/components/site/PortalLayout';
 import { INSTRUCTOR_NAV_LABELS, buildInstructorNav } from '@/components/site/instructorNav';
@@ -8,6 +8,8 @@ import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
 import { type CitaInstructor } from '@/data/citasInstructorData';
 import type { CitaEstado } from '@/data/admin/agendaData';
+import { cargarPagosEnRevision, revisarPago, urlComprobante, type PagoEnRevision } from '@/lib/api/pagos';
+import { useDialogo } from '@/context/DialogoContext';
 
 type Tab = 'proximas' | 'canceladas' | 'realizadas';
 type Vista = 'lista' | 'historial';
@@ -30,6 +32,10 @@ const text = {
     guardarNota: 'Guardar nota', notaGuardada: 'Guardado ✓',
     notasGenerales: 'Notas generales del paciente', notaGeneralPlaceholder: 'Agrega una nota general sobre este paciente…',
     agregarNota: '+ Agregar nota', sinNotasGenerales: 'Aún no hay notas generales para este paciente.',
+    pagosRevision: 'Transferencias por revisar', pagosRevisionSub: 'Verifica que el dinero llegó antes de aprobar: al aprobar se abona a la cita.',
+    referencia: 'Ref.', sinReferencia: 'sin referencia', verComprobante: 'Ver comprobante', sinComprobante: 'Sin comprobante',
+    aprobar: 'Aprobar', rechazar: 'Rechazar', motivoRechazo: 'Motivo del rechazo (se le mostrará al paciente, opcional):',
+    confirmAprobar: '¿Confirmas que recibiste esta transferencia?', comprobanteNoDisponible: 'No se pudo abrir el comprobante.',
   },
   en: {
     volverPortal: 'Back to panel',
@@ -48,6 +54,10 @@ const text = {
     guardarNota: 'Save note', notaGuardada: 'Saved ✓',
     notasGenerales: "General notes on this patient", notaGeneralPlaceholder: 'Add a general note about this patient…',
     agregarNota: '+ Add note', sinNotasGenerales: 'No general notes for this patient yet.',
+    pagosRevision: 'Transfers to review', pagosRevisionSub: 'Check the money arrived before approving: approving credits it to the appointment.',
+    referencia: 'Ref.', sinReferencia: 'no reference', verComprobante: 'View receipt', sinComprobante: 'No receipt',
+    aprobar: 'Approve', rechazar: 'Reject', motivoRechazo: 'Reason for rejection (shown to the patient, optional):',
+    confirmAprobar: 'Do you confirm you received this transfer?', comprobanteNoDisponible: 'The receipt could not be opened.',
   },
 } as const;
 
@@ -76,7 +86,54 @@ function diffDias(fechaISO: string, base: string) {
 export default function MisCitasPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
-  const { citas, notas, hoy, errorCitas, cargando, reagendarCita, cambiarEstado, actualizarNotaSesion, agregarNotaPaciente } = useInstructorAgenda();
+  const dialogo = useDialogo();
+  const { citas, notas, hoy, enBase, errorCitas, cargando, recargarCitas, reagendarCita, cambiarEstado, actualizarNotaSesion, agregarNotaPaciente } = useInstructorAgenda();
+
+  // Con sesión real: transferencias reportadas por pacientes, pendientes de aprobar.
+  const [pagosRevision, setPagosRevision] = useState<PagoEnRevision[]>([]);
+  const [revisandoId, setRevisandoId] = useState<string | null>(null);
+  const [errorPago, setErrorPago] = useState<string | null>(null);
+
+  const recargarPagosRevision = useCallback(async () => {
+    const res = await cargarPagosEnRevision();
+    if (!res.error) setPagosRevision(res.data);
+  }, []);
+
+  useEffect(() => {
+    if (enBase) void recargarPagosRevision();
+  }, [enBase, recargarPagosRevision]);
+
+  async function decidirPago(pago: PagoEnRevision, aprobar: boolean) {
+    let motivo: string | undefined;
+    if (aprobar) {
+      if (!(await dialogo.confirmar(t.confirmAprobar, { textoAceptar: t.aprobar }))) return;
+    } else {
+      const respuesta = await dialogo.pedirTexto(t.motivoRechazo, { peligro: true, textoAceptar: t.rechazar });
+      if (respuesta === null) return;
+      motivo = respuesta.trim() || undefined;
+    }
+    setRevisandoId(pago.id);
+    setErrorPago(null);
+    const res = await revisarPago(pago.id, aprobar, motivo);
+    setRevisandoId(null);
+    if (res.error) {
+      setErrorPago(res.error.message);
+      return;
+    }
+    await Promise.all([recargarPagosRevision(), recargarCitas()]);
+  }
+
+  async function verComprobante(ruta: string) {
+    // La pestaña se abre antes del await para que el navegador no la bloquee.
+    const ventana = window.open('', '_blank');
+    const url = await urlComprobante(ruta);
+    if (url && ventana) {
+      ventana.location.href = url;
+    } else {
+      ventana?.close();
+      setErrorPago(t.comprobanteNoDisponible);
+    }
+  }
 
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['citas'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
 
@@ -124,8 +181,8 @@ export default function MisCitasPage() {
     reagendarCita(id, draftFecha, draftHora);
     setReagendandoId(null);
   }
-  function cancelarCita(id: string) {
-    if (!window.confirm(t.confirmCancelar)) return;
+  async function cancelarCita(id: string) {
+    if (!(await dialogo.confirmar(t.confirmCancelar, { peligro: true }))) return;
     cambiarEstado(id, 'Cancelada');
   }
 
@@ -284,6 +341,51 @@ export default function MisCitasPage() {
               <p className="font-display text-2xl font-semibold text-emerald-600">{realizadas.length}</p>
             </div>
           </section>
+
+          {enBase && pagosRevision.length > 0 && (
+            <section className="rounded-3xl border border-amber-200 bg-amber-50/60 p-5">
+              <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink"><Receipt size={18} /> {t.pagosRevision}</h2>
+              <p className="mb-3 text-xs text-ink/55">{t.pagosRevisionSub}</p>
+              {errorPago && <p role="alert" className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-600">{errorPago}</p>}
+              <div className="space-y-2">
+                {pagosRevision.map((p) => {
+                  const cita = citas.find((c) => c.id === p.citaId);
+                  return (
+                    <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-100 bg-white px-4 py-3 text-sm">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold text-ink">{cita?.paciente ?? '—'}</p>
+                        <p className="truncate text-xs text-ink/50">
+                          {cita ? `${cita.servicio} · ${cita.fechaISO} ${cita.hora} · ` : ''}{t.referencia} {p.referencia || t.sinReferencia}
+                        </p>
+                      </div>
+                      <b className="text-amber-700">{p.moneda} ${p.monto.toLocaleString('es-ES', { maximumFractionDigits: 2 })}</b>
+                      {p.comprobante ? (
+                        <button onClick={() => void verComprobante(p.comprobante as string)} className="rounded-full border border-brand-200 px-3 py-1.5 text-xs font-semibold text-ink/70 hover:bg-brand-50">
+                          {t.verComprobante}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-ink/40">{t.sinComprobante}</span>
+                      )}
+                      <button
+                        disabled={revisandoId === p.id}
+                        onClick={() => void decidirPago(p, true)}
+                        className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        <Check size={13} /> {t.aprobar}
+                      </button>
+                      <button
+                        disabled={revisandoId === p.id}
+                        onClick={() => void decidirPago(p, false)}
+                        className="inline-flex items-center gap-1 rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                      >
+                        <XCircle size={13} /> {t.rechazar}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           <div className="flex gap-2">
             {(['proximas', 'canceladas', 'realizadas'] as Tab[]).map((tb) => (

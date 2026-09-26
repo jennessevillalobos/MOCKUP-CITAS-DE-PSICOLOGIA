@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Menu, Bell, LogOut, ArrowLeft, type LucideIcon } from 'lucide-react';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
+import { useDialogo } from '@/context/DialogoContext';
 
 const logo = '/src/assets/logos/1_(1).png';
 
@@ -63,10 +64,11 @@ export default function PortalLayout({
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const t = text[language];
+  const dialogo = useDialogo();
 
-  function handleLogout() {
-    if (!confirm(t.logoutConfirm)) return;
-    logout();
+  async function handleLogout() {
+    if (!(await dialogo.confirmar(t.logoutConfirm))) return;
+    await logout();
     navigate('/iniciar-sesion');
   }
 

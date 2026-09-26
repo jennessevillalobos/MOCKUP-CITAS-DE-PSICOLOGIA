@@ -8,6 +8,7 @@ import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { VIDEOS_COMPRADOS, LIBROS_COMPRADOS } from '@/data/libraryData';
 import { createDownloadLink } from '@/lib/api/edgeFunctions';
+import { useDialogo } from '@/context/DialogoContext';
 
 type Vista = 'lista' | 'video' | 'libro';
 type Tab = 'videos' | 'libros';
@@ -45,6 +46,7 @@ export default function LibraryPage() {
   const { user, isRealAuth } = useSiteAuth();
   const { language } = useSiteLanguage();
   const t = text[language];
+  const dialogo = useDialogo();
 
   const [vista, setVista] = useState<Vista>('lista');
   const [tab, setTab] = useState<Tab>('videos');
@@ -57,14 +59,14 @@ export default function LibraryPage() {
 
   const handleDownload = async (ordenId: string) => {
     if (!isRealAuth) {
-      alert(language === 'es' ? 'El comprobante real solo está disponible para compras con sesión activa.' : 'Real receipt is only available for purchases with active session.');
+      void dialogo.avisar(language === 'es' ? 'El comprobante real solo está disponible para compras con sesión activa.' : 'Real receipt is only available for purchases with active session.');
       return;
     }
     // createDownloadLink espera el id numérico de compras_digitales; las compras
     // demo (#PA-xxxxx) no existen en la base.
     const compraId = Number(ordenId);
     if (!Number.isInteger(compraId)) {
-      alert(language === 'es' ? 'Esta compra es de demostración y no tiene comprobante real.' : 'This is a demo purchase and has no real receipt.');
+      void dialogo.avisar(language === 'es' ? 'Esta compra es de demostración y no tiene comprobante real.' : 'This is a demo purchase and has no real receipt.');
       return;
     }
     setIsDownloading(true);
@@ -73,7 +75,7 @@ export default function LibraryPage() {
     if (!res.error && res.data?.download_url) {
       window.open(res.data.download_url, '_blank');
     } else {
-      alert(res.error?.message || 'Error al obtener el comprobante.');
+      void dialogo.avisar(res.error?.message || 'Error al obtener el comprobante.');
     }
   };
 

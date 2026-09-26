@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import { X, ShieldCheck, Loader2, PartyPopper, ArrowRight, Building, UploadCloud } from 'lucide-react';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useSiteAuth } from '@/context/SiteAuthContext';
-import { getSupabaseClient } from '@/lib/supabase/client';
 import { createStripeSession, createPaypalOrder } from '@/lib/api/edgeFunctions';
-import { uploadToCloudinary, CLOUDINARY_CONFIGURED } from '@/lib/integrations/cloudinary';
+import { reportarTransferencia, ordenDeCita } from '@/lib/api/pagos';
 
 interface PaymentCheckoutModalProps {
+  // En unidades de la moneda (USD), no centavos.
   monto: number;
+  // Cita a la que se aplica el pago (obligatoria con sesión real).
+  citaId?: string;
   concepto: string;
   moneda?: string;
   ordenId?: string;
@@ -26,9 +28,15 @@ const text = {
     uploadReceipt: 'Sube tu comprobante (PDF, JPG, PNG)', upload: 'Seleccionar archivo', uploadOk: 'Archivo seleccionado', uploadingMsg: 'Subiendo comprobante...',
     simulated: 'Pago protegido por SSL — procesado mediante pasarela segura.',
     pay: 'Pagar', reportPayment: 'Reportar pago', processing: 'Procesando...',
+    stripeRedirect: 'Al hacer clic en pagar, irás a la página segura de Stripe para ingresar tu tarjeta.',
+    paypalRedirect: 'Al hacer clic en pagar, serás redirigido a PayPal de forma segura.',
     successTitle: '¡Pago exitoso!', successSub: 'Tu pago ha sido registrado correctamente.',
-    successSubTransfer: 'Hemos recibido tu reporte. Será validado en las próximas 24 horas.',
+    successTitleTransfer: '¡Pago reportado!', successSubTransfer: 'Tu profesional revisará la transferencia; al aprobarla se abona a tu cita y te avisaremos.',
     close: 'Cerrar ventana',
+    referencia: 'N.º de referencia de la transferencia (opcional)',
+    eligeCita: 'Elige la cita que quieres pagar desde "Mis citas".',
+    sinOrden: 'No se encontró la orden de pago de esta cita.',
+    pasarelaNoDisponible: 'Este método de pago aún no está disponible. Usa transferencia.',
   },
   en: {
     title: 'Make a payment',
@@ -40,23 +48,29 @@ const text = {
     uploadReceipt: 'Upload your receipt (PDF, JPG, PNG)', upload: 'Select file', uploadOk: 'File selected', uploadingMsg: 'Uploading receipt...',
     simulated: 'SSL Secured Payment — processed via secure gateway.',
     pay: 'Pay', reportPayment: 'Report payment', processing: 'Processing...',
+    stripeRedirect: "When you click pay, you will go to Stripe's secure page to enter your card.",
+    paypalRedirect: 'When you click pay, you will be securely redirected to PayPal.',
     successTitle: 'Payment successful!', successSub: 'Your payment has been registered correctly.',
-    successSubTransfer: 'We have received your report. It will be validated within 24 hours.',
+    successTitleTransfer: 'Payment reported!', successSubTransfer: 'Your professional will review the transfer; once approved it is credited to your appointment and we will notify you.',
     close: 'Close window',
+    referencia: 'Transfer reference number (optional)',
+    eligeCita: 'Choose the appointment you want to pay from "My appointments".',
+    sinOrden: "This appointment's payment order was not found.",
+    pasarelaNoDisponible: 'This payment method is not available yet. Please use transfer.',
   }
 } as const;
 
-export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', ordenId, onClose, onSuccess }: PaymentCheckoutModalProps) {
+export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', ordenId, citaId, onClose, onSuccess }: PaymentCheckoutModalProps) {
   const { language } = useSiteLanguage();
   const t = text[language];
-  const { isRealAuth } = useSiteAuth();
+  const { esSesionReal } = useSiteAuth();
 
   const [method, setMethod] = useState<'card' | 'paypal' | 'transfer'>('card');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [referencia, setReferencia] = useState('');
 
   // Prevent background scrolling
   useEffect(() => {
@@ -69,79 +83,45 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
     setIsProcessing(true);
     setPayError(null);
 
-    // ── Real API Flow (Stripe, PayPal, Transfer) ──
-    if (isRealAuth) {
-      const supabase = getSupabaseClient();
-      if (supabase) {
-        const { data: session } = await supabase.auth.getSession();
-        const userId = session.session?.user.id;
-
-        if (userId) {
-          let currentOrdenId = ordenId;
-
-          // Si no viene un ordenId explícito, registramos una nueva orden en Supabase
-          if (!currentOrdenId) {
-            const { data: orden, error: ordenErr } = await supabase
-              .from('ordenes')
-              .insert({
-                usuario_id: userId,
-                concepto,
-                monto,
-                moneda,
-                estado: 'pendiente',
-                metodo_pago: method,
-              })
-              .select('id')
-              .single();
-
-            if (!ordenErr && orden) {
-              currentOrdenId = orden.id;
-            }
-          }
-
-          if (currentOrdenId) {
-            if (method === 'card') {
-              const res = await createStripeSession(currentOrdenId, monto);
-              if (!res.error && res.data?.checkout_url) {
-                setIsProcessing(false);
-                window.location.href = res.data.checkout_url;
-                return;
-              } else if (res.error && res.error.code !== 'supabase_not_configured') {
-                setIsProcessing(false);
-                setPayError(res.error.message);
-                return;
-              }
-            } else if (method === 'paypal') {
-              const res = await createPaypalOrder(currentOrdenId);
-              if (!res.error && res.data?.approval_url) {
-                setIsProcessing(false);
-                window.location.href = res.data.approval_url;
-                return;
-              } else if (res.error && res.error.code !== 'supabase_not_configured') {
-                setIsProcessing(false);
-                setPayError(res.error.message);
-                return;
-              }
-            } else if (method === 'transfer') {
-              // Subir comprobante a Cloudinary si hay archivo seleccionado
-              let comprobanteUrl = 'comprobante_pendiente';
-              if (receiptFile && CLOUDINARY_CONFIGURED) {
-                setIsUploading(true);
-                const url = await uploadToCloudinary(receiptFile);
-                setIsUploading(false);
-                if (url) comprobanteUrl = url;
-              } else if (receiptFile) {
-                // Cloudinary no configurado: guardar nombre como referencia
-                comprobanteUrl = `local:${receiptFile.name}`;
-              }
-              await supabase
-                .from('ordenes')
-                .update({ estado: 'en_revision', comprobante_url: comprobanteUrl })
-                .eq('id', currentOrdenId);
-            }
-          }
-        }
+    // ── Flujo real (Supabase) ──
+    if (esSesionReal) {
+      if (!citaId) {
+        setIsProcessing(false);
+        setPayError(t.eligeCita);
+        return;
       }
+
+      if (method === 'transfer') {
+        // Queda "en revisión" hasta que la profesional lo aprueba.
+        const res = await reportarTransferencia(citaId, monto, referencia, receiptFile);
+        setIsProcessing(false);
+        if (res.error) {
+          setPayError(res.error.message);
+          return;
+        }
+        setIsSuccess(true);
+        if (onSuccess) setTimeout(onSuccess, 3000);
+        return;
+      }
+
+      // Tarjeta / PayPal: se cobra sobre la orden de la cita (Edge Functions).
+      const currentOrdenId = ordenId ?? (await ordenDeCita(citaId));
+      if (!currentOrdenId) {
+        setIsProcessing(false);
+        setPayError(t.sinOrden);
+        return;
+      }
+      const res = method === 'card'
+        ? await createStripeSession(currentOrdenId, Math.round(monto * 100))
+        : await createPaypalOrder(currentOrdenId);
+      setIsProcessing(false);
+      if (res.error) {
+        setPayError(res.error.code === 'config_error' ? t.pasarelaNoDisponible : res.error.message);
+        return;
+      }
+      const destino = 'checkout_url' in res.data ? res.data.checkout_url : res.data.approval_url;
+      if (destino) window.location.href = destino;
+      return;
     }
 
     // ── Demo / Fallback mode ──
@@ -160,7 +140,7 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-brand-100 bg-brand-50/50 px-6 py-4">
-          <h2 className="font-display text-lg font-semibold text-ink">{isSuccess ? t.successTitle : t.title}</h2>
+          <h2 className="font-display text-lg font-semibold text-ink">{isSuccess ? (method === 'transfer' ? t.successTitleTransfer : t.successTitle) : t.title}</h2>
           {!isProcessing && !isSuccess && (
             <button onClick={onClose} className="rounded-full p-2 text-ink/40 transition hover:bg-white hover:text-ink">
               <X size={20} />
@@ -175,7 +155,7 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
               <div className="mb-5 grid h-20 w-20 place-items-center rounded-full bg-emerald-50 text-emerald-600">
                 <PartyPopper size={36} />
               </div>
-              <h3 className="font-display text-2xl font-bold text-ink">{t.successTitle}</h3>
+              <h3 className="font-display text-2xl font-bold text-ink">{method === 'transfer' ? t.successTitleTransfer : t.successTitle}</h3>
               <p className="mt-2 text-sm text-ink/60">{method === 'transfer' ? t.successSubTransfer : t.successSub}</p>
 
               <div className="mt-8 flex w-full flex-col gap-3">
@@ -217,7 +197,13 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
 
               {/* Form Fields based on Method */}
               <div className="space-y-4">
-                {method === 'card' && (
+                {method === 'card' && esSesionReal && (
+                  <div className="flex h-40 flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-brand-200 bg-brand-50/50">
+                    <p className="px-6 text-center text-sm text-ink/60">{t.stripeRedirect}</p>
+                  </div>
+                )}
+
+                {method === 'card' && !esSesionReal && (
                   <>
                     <label className="block">
                       <span className="mb-1 block text-xs font-bold text-ink/70">{t.cardNumber}</span>
@@ -242,9 +228,7 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
 
                 {method === 'paypal' && (
                   <div className="flex h-40 flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-brand-200 bg-brand-50/50">
-                     <p className="text-center text-sm text-ink/60 px-6">
-                       Al hacer clic en pagar, serás redirigido a PayPal de forma segura.
-                     </p>
+                     <p className="text-center text-sm text-ink/60 px-6">{t.paypalRedirect}</p>
                   </div>
                 )}
 
@@ -271,6 +255,16 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
                       </dl>
                     </div>
                     
+                    <label className="block">
+                      <span className="mb-1 block text-xs font-bold text-ink/70">{t.referencia}</span>
+                      <input
+                        value={referencia}
+                        onChange={(e) => setReferencia(e.target.value)}
+                        maxLength={60}
+                        className="w-full rounded-xl border border-brand-200 px-3 py-2 text-sm text-ink focus:border-brand-400 focus:outline-none"
+                      />
+                    </label>
+
                     <div>
                        <span className="mb-1 block text-xs font-bold text-ink/70">{t.uploadReceipt}</span>
                        <label className="flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-brand-200 bg-white text-sm font-bold text-brand-700 hover:bg-brand-50 transition">
@@ -286,7 +280,7 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
                        {receiptFile && (
                          <p className="mt-1 text-[11px] text-emerald-600">✓ {t.uploadOk}</p>
                        )}
-                       {isUploading && (
+                       {isProcessing && receiptFile && (
                          <p className="mt-1 flex items-center gap-1 text-[11px] text-brand-600"><Loader2 size={11} className="animate-spin" /> {t.uploadingMsg}</p>
                        )}
                      </div>

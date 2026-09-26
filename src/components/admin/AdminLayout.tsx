@@ -5,6 +5,7 @@ import { useAdminAuth } from '@/context/AdminAuthContext';
 import { useAdminLanguage } from '@/context/AdminLanguageContext';
 import { adminT } from '@/i18n/adminTranslations';
 import { adminNavGroups } from '@/config/adminNav';
+import { useDialogo } from '@/context/DialogoContext';
 
 const logo = '/src/assets/logos/1_(1).png';
 
@@ -19,11 +20,12 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const { user, logout } = useAdminAuth();
   const { lang, toggle } = useAdminLanguage();
   const t = adminT[lang];
+  const dialogo = useDialogo();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  function handleLogout() {
-    if (!confirm(t.logoutConfirm)) return;
+  async function handleLogout() {
+    if (!(await dialogo.confirmar(t.logoutConfirm))) return;
     logout();
     navigate('/admin');
   }

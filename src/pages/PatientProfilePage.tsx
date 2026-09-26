@@ -7,6 +7,7 @@ import {
 import PortalLayout, { type PortalNavItem } from '@/components/site/PortalLayout';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
+import { useDialogo } from '@/context/DialogoContext';
 
 type Tab = 'datos' | 'seguridad' | 'preferencias';
 
@@ -69,6 +70,7 @@ export default function PatientProfilePage() {
   const { language, setLanguage } = useSiteLanguage();
   const navigate = useNavigate();
   const t = text[language];
+  const dialogo = useDialogo();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [tab, setTab] = useState<Tab>('datos');
@@ -125,9 +127,9 @@ export default function PatientProfilePage() {
     reader.readAsDataURL(file);
   }
 
-  function desactivarCuenta() {
-    if (!window.confirm(t.confirmarDesactivar)) return;
-    logout();
+  async function desactivarCuenta() {
+    if (!(await dialogo.confirmar(t.confirmarDesactivar, { peligro: true }))) return;
+    await logout();
     navigate('/');
   }
 

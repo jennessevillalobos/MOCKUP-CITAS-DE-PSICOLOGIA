@@ -11,6 +11,7 @@ import { CLASES_VIVO_DEMO, CHAT_DEMO_INSTRUCTOR, type ClaseEnVivo, type ClaseViv
 import { CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
 import { useInstructorCourses } from '@/context/InstructorCoursesContext';
 import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
+import { useDialogo } from '@/context/DialogoContext';
 
 type Vista = 'lista' | 'sala' | 'grabacion';
 type Tab = 'agenda' | 'grabaciones';
@@ -128,6 +129,7 @@ const FORM_INICIAL = {
 export default function ClasesVivoPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
+  const dialogo = useDialogo();
   const { clases, hoy, errorClases, crearClase, actualizarClase, cancelarClase, iniciarClase, finalizarClase, toggleRecordarme, recordatoriosColegas } = useInstructorLiveClasses();
   const { cursos, metaCursos } = useInstructorCourses();
   const { citas } = useInstructorAgenda();
@@ -251,8 +253,8 @@ export default function ClasesVivoPage() {
     }));
   }
 
-  function cancelarClic(id: string) {
-    if (!window.confirm(t.confirmCancelar)) return;
+  async function cancelarClic(id: string) {
+    if (!(await dialogo.confirmar(t.confirmCancelar, { peligro: true }))) return;
     cancelarClase(id);
   }
 

@@ -63,10 +63,12 @@ import ProtectedAdminRoute from '@/components/admin/ProtectedAdminRoute';
 import { AdminAuthProvider } from '@/context/AdminAuthContext';
 import { AdminLanguageProvider } from '@/context/AdminLanguageContext';
 import { SiteLanguageProvider } from '@/context/SiteLanguageContext';
+import { DialogoProvider } from '@/context/DialogoContext';
 
 function App() {
   return (
     <SiteLanguageProvider>
+    <DialogoProvider>
     <SiteAuthProvider>
     <AdminLanguageProvider>
     <AdminAuthProvider>
@@ -414,6 +416,7 @@ function App() {
     </AdminAuthProvider>
     </AdminLanguageProvider>
     </SiteAuthProvider>
+    </DialogoProvider>
     </SiteLanguageProvider>
   );
 }

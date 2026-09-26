@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, CalendarDays, CreditCard, Bell, UserCog,
@@ -11,7 +11,11 @@ import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useMyAppointments, useMyPurchases } from '@/hooks/useSupabaseData';
 import { CITAS_PACIENTE, NOTIFICACIONES_PACIENTE, type CitaPaciente } from '@/data/patientPortalData';
 import { cancelAppointment } from '@/lib/api/edgeFunctions';
+import { cargarMisPagos, type PagoPaciente } from '@/lib/api/pagos';
+import { cargarNotificaciones, marcarNotificacionesLeidas } from '@/lib/api/notificaciones';
+import type { NotificacionInstructor } from '@/data/notificacionesInstructorData';
 import ReprogramarCitaPanel from '@/components/site/ReprogramarCitaPanel';
+import { useDialogo } from '@/context/DialogoContext';
 
 
 
@@ -21,6 +25,7 @@ type Tab = 'dash' | 'citas' | 'detalle' | 'pagos' | 'notif';
 
 const text = {
   es: {
+    sinPagos: 'Todavía no registraste pagos.', motivoRechazo: 'Motivo del rechazo', sinNotif: 'No tienes notificaciones.',
     citaCancelada: 'Cita cancelada.', primeraSesion: 'Tu primera sesión te espera.',
     sinProximas: 'No tienes citas próximas.', sinCitas: 'Todavía no tienes citas.',
     dashboard: 'Dashboard', aulaVirtual: 'Aula Virtual', misCitas: 'Mis citas', misPagos: 'Mis pagos', notificaciones: 'Notificaciones', miPerfil: 'Mi perfil',
@@ -42,6 +47,7 @@ const text = {
     proximoLabel: 'Sin próximas',
   },
   en: {
+    sinPagos: 'You have no payments yet.', motivoRechazo: 'Rejection reason', sinNotif: 'You have no notifications.',
     citaCancelada: 'Appointment cancelled.', primeraSesion: 'Your first session awaits.',
     sinProximas: 'You have no upcoming appointments.', sinCitas: 'You have no appointments yet.',
     dashboard: 'Dashboard', aulaVirtual: 'Virtual Classroom', misCitas: 'My appointments', misPagos: 'My payments', notificaciones: 'Notifications', miPerfil: 'My profile',
@@ -63,6 +69,14 @@ const text = {
     proximoLabel: 'No upcoming',
   },
 } as const;
+
+const METODO_PAGO: Record<string, { es: string; en: string }> = {
+  transferencia: { es: 'Transferencia', en: 'Transfer' },
+  stripe: { es: 'Tarjeta', en: 'Card' },
+  paypal: { es: 'PayPal', en: 'PayPal' },
+  manual: { es: 'Manual', en: 'Manual' },
+  credito: { es: 'Crédito', en: 'Credit' },
+};
 
 // USD con 2 decimales solo si hace falta (50 → "50", 37.5 → "37.50").
 function monto(valor: number) {
@@ -88,9 +102,12 @@ export default function PatientPortalPage() {
   const { language } = useSiteLanguage();
   const navigate = useNavigate();
   const t = text[language];
+  const dialogo = useDialogo();
   const [tab, setTab] = useState<Tab>('dash');
   const [citaSeleccionada, setCitaSeleccionada] = useState<CitaPaciente | null>(null);
-  const [paymentModalData, setPaymentModalData] = useState<{ isOpen: boolean; monto: number; concepto: string } | null>(null);
+  const [paymentModalData, setPaymentModalData] = useState<{ isOpen: boolean; monto: number; concepto: string; citaId?: string } | null>(null);
+  const [pagosReales, setPagosReales] = useState<PagoPaciente[]>([]);
+  const [notifReales, setNotifReales] = useState<NotificacionInstructor[]>([]);
   const [isCanceling, setIsCanceling] = useState(false);
   const [reprogramando, setReprogramando] = useState(false);
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
@@ -131,7 +148,7 @@ export default function PatientPortalPage() {
   }, [dbCompras, demoPagos]);
 
   const handleCancelar = async (citaId?: string) => {
-    if (!window.confirm(t.confirmCancelar)) return;
+    if (!(await dialogo.confirmar(t.confirmCancelar, { peligro: true }))) return;
     // Sin sesión real o sin id de base (citas demo/wizard), la cancelación es solo visual.
     if (!enBase || !citaId) {
       setCitaSeleccionada(prev => prev ? { ...prev, estado: 'cancelada' } : null);
@@ -149,6 +166,40 @@ export default function PatientPortalPage() {
     setCitaSeleccionada(prev => prev ? { ...prev, estado: 'cancelada' } : null);
     await refreshCitas();
   };
+
+  // Con sesión real: pagos y notificaciones de la base.
+  const recargarPagos = useCallback(async () => {
+    const res = await cargarMisPagos();
+    if (!res.error) setPagosReales(res.data);
+  }, []);
+
+  useEffect(() => {
+    if (!enBase) return;
+    void recargarPagos();
+    void cargarNotificaciones().then((res) => { if (!res.error) setNotifReales(res.data); });
+  }, [enBase, recargarPagos]);
+
+  function abrirNotificaciones() {
+    setTab('notif');
+    if (enBase && notifReales.some((n) => !n.leida)) {
+      void marcarNotificacionesLeidas(null);
+      setNotifReales((ns) => ns.map((n) => ({ ...n, leida: true })));
+    }
+  }
+
+  async function pagoReportado() {
+    setPaymentModalData(null);
+    await Promise.all([recargarPagos(), refreshCitas()]);
+  }
+
+  // Con la base, el saldo se paga cita por cita (el pago va a la orden de esa cita).
+  function pagarSaldoGeneral() {
+    if (enBase) {
+      setTab('pagos');
+      return;
+    }
+    setPaymentModalData({ isOpen: true, monto: saldoTotal, concepto: language === 'es' ? 'Saldo pendiente total' : 'Total balance due' });
+  }
 
   async function reprogramacionLista(mensaje: string) {
     setReprogramando(false);
@@ -174,6 +225,23 @@ export default function PatientPortalPage() {
   // Saldo solo de citas vigentes (una cancelada no se cobra).
   const saldoTotal = citasProximas.filter((c) => c.total > c.pagado).reduce((acc, c) => acc + (c.total - c.pagado), 0);
   const proxima = citasProximas[0];
+  // Pagos: con la base, los reales (en revisión = transferencias pendientes).
+  const pagosVista = useMemo(() => (enBase
+    ? pagosReales.map((p) => ({
+        concepto: { es: p.concepto, en: p.concepto },
+        fecha: new Date(p.fecha).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }),
+        monto: p.monto,
+        metodo: { es: METODO_PAGO[p.metodo]?.es ?? p.metodo, en: METODO_PAGO[p.metodo]?.en ?? p.metodo },
+        motivoRechazo: p.motivoRechazo,
+        estado: (p.estado === 'aprobado' ? 'pagado' : p.estado === 'rechazado' ? 'rechazado' : p.estado === 'pendiente' ? 'revision' : 'pendiente') as 'pagado' | 'pendiente' | 'revision' | 'rechazado',
+      }))
+    : pagosCombinados.map((p) => ({ ...p, motivoRechazo: null as string | null }))), [enBase, pagosReales, pagosCombinados]);
+  const totalPagado = pagosReales.filter((p) => p.estado === 'aprobado').reduce((a, p) => a + p.monto, 0);
+  const totalEnRevision = pagosReales.filter((p) => p.estado === 'pendiente').reduce((a, p) => a + p.monto, 0);
+  // Lo que falta pagar: el saldo menos las transferencias ya reportadas (en revisión).
+  const saldoPorPagar = enBase ? Math.max(0, saldoTotal - totalEnRevision) : saldoTotal;
+  const enRevisionDeCita = (citaId?: string) =>
+    pagosReales.filter((p) => p.estado === 'pendiente' && p.citaId === citaId).reduce((a, p) => a + p.monto, 0);
   const sesionesCompletadas = citasCombinadas.filter((c) => c.estado === 'completada').length + (enBase ? 0 : 5);
 
   function abrirDetalle(cita: CitaPaciente) {
@@ -196,7 +264,7 @@ export default function PatientPortalPage() {
     <PortalLayout
       navItems={navItems}
       activeKey={tab === 'detalle' ? 'citas' : tab}
-      onNavigate={(k) => setTab(k as Tab)}
+      onNavigate={(k) => (k === 'notif' ? abrirNotificaciones() : setTab(k as Tab))}
       roleBadge={{ es: 'Paciente', en: 'Patient' }}
       sidebarExtra={
         <div className="rounded-2xl bg-white/10 p-4 text-white">
@@ -223,8 +291,8 @@ export default function PatientPortalPage() {
             </div>
             <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
               <p className="text-xs text-ink/50">{t.pagosPendientes}</p>
-              <p className="mt-2 font-display text-lg font-semibold text-ink">USD ${monto(saldoTotal)}</p>
-              <p className="text-xs text-amber-600">{saldoTotal > 0 ? t.saldoPendiente : t.sinSaldos}</p>
+              <p className="mt-2 font-display text-lg font-semibold text-ink">USD ${monto(saldoPorPagar)}</p>
+              <p className="text-xs text-amber-600">{saldoPorPagar > 0 ? t.saldoPendiente : t.sinSaldos}</p>
             </div>
             <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
               <p className="text-xs text-ink/50">{t.sesionesCompletadas}</p>
@@ -284,11 +352,11 @@ export default function PatientPortalPage() {
                 </div>
               </div>
 
-              {saldoTotal > 0 && (
+              {saldoPorPagar > 0 && (
                 <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm">
                   <p className="mb-1 flex items-center gap-1.5 font-semibold text-amber-700">⚠️ {t.saldoPendiente}</p>
-                  <p className="mb-3 text-xs text-ink/60">{t.tienesSaldo} <b className="text-ink">USD ${monto(saldoTotal)}</b>.</p>
-                  <button onClick={() => setPaymentModalData({ isOpen: true, monto: saldoTotal, concepto: language === 'es' ? 'Saldo pendiente total' : 'Total balance due' })} className="rounded-full bg-brand-gradient px-4 py-2 text-xs font-bold text-white">{t.pagarAhora}</button>
+                  <p className="mb-3 text-xs text-ink/60">{t.tienesSaldo} <b className="text-ink">USD ${monto(saldoPorPagar)}</b>.</p>
+                  <button onClick={pagarSaldoGeneral} className="rounded-full bg-brand-gradient px-4 py-2 text-xs font-bold text-white">{t.pagarAhora}</button>
                 </div>
               )}
             </div>
@@ -398,7 +466,7 @@ export default function PatientPortalPage() {
                 <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
                   <span>{t.pagarSaldo} USD ${monto(citaSeleccionada.total - citaSeleccionada.pagado)}</span>
                   <button 
-                    onClick={() => setPaymentModalData({ isOpen: true, monto: citaSeleccionada.total - citaSeleccionada.pagado, concepto: `${language === 'es' ? 'Pago de saldo de cita' : 'Appointment balance payment'} ${citaSeleccionada.fecha}` })} 
+                    onClick={() => setPaymentModalData({ isOpen: true, monto: citaSeleccionada.total - citaSeleccionada.pagado - enRevisionDeCita(citaSeleccionada.id), concepto: `${citaSeleccionada.servicio[language]} · ${citaSeleccionada.fecha[language]}`, citaId: citaSeleccionada.id })} 
                     className="rounded-full bg-amber-600 px-3 py-1.5 text-xs text-white hover:bg-amber-700 transition"
                   >
                     {t.pagarAhora}
@@ -421,25 +489,52 @@ export default function PatientPortalPage() {
           <section className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-3xl border border-brand-100 bg-white p-4 shadow-soft">
               <p className="text-xs text-ink/50">{t.totalPagado}</p>
-              <p className="font-display text-xl font-semibold text-ink">USD $87</p>
+              <p className="font-display text-xl font-semibold text-ink">USD ${enBase ? monto(totalPagado) : 87}</p>
             </div>
             <div className="rounded-3xl border border-brand-100 bg-white p-4 shadow-soft">
               <p className="text-xs text-ink/50">{t.pendiente}</p>
-              <p className="font-display text-xl font-semibold text-amber-600">USD $30</p>
+              <p className="font-display text-xl font-semibold text-amber-600">USD ${enBase ? monto(saldoPorPagar) : 30}</p>
             </div>
             <div className="rounded-3xl border border-brand-100 bg-white p-4 shadow-soft">
               <p className="text-xs text-ink/50">{t.enRevision}</p>
-              <p className="font-display text-xl font-semibold text-lilac-600">USD $55</p>
+              <p className="font-display text-xl font-semibold text-lilac-600">USD ${enBase ? monto(totalEnRevision) : 55}</p>
             </div>
           </section>
+
+          {enBase && citasProximas.some((c) => c.total - c.pagado - enRevisionDeCita(c.id) > 0) && (
+            <div className="space-y-2">
+              {citasProximas.filter((c) => c.total - c.pagado - enRevisionDeCita(c.id) > 0).map((c) => (
+                <div key={c.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
+                  <span className="text-ink">{c.servicio[language]} · {c.fecha[language]} {c.hora}</span>
+                  <span className="flex items-center gap-3">
+                    <b className="text-amber-700">USD ${monto(c.total - c.pagado - enRevisionDeCita(c.id))}</b>
+                    <button
+                      onClick={() => setPaymentModalData({ isOpen: true, monto: c.total - c.pagado - enRevisionDeCita(c.id), concepto: `${c.servicio[language]} · ${c.fecha[language]}`, citaId: c.id })}
+                      className="rounded-full bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700"
+                    >
+                      {t.pagarAhora}
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="overflow-hidden rounded-3xl border border-brand-100 bg-white shadow-soft">
             <div className="hidden grid-cols-12 gap-2 border-b border-brand-50 px-5 py-3 text-xs text-ink/45 sm:grid">
               <span className="col-span-4">{t.concepto}</span><span className="col-span-2">{t.fecha}</span><span className="col-span-2">{t.monto}</span><span className="col-span-2">{t.metodo}</span><span className="col-span-2">{t.estado}</span>
             </div>
             <div className="divide-y divide-brand-50 text-sm">
-              {pagosCombinados.map((p, i) => (
+              {enBase && pagosVista.length === 0 && (
+                <p className="px-5 py-6 text-sm text-ink/45">{t.sinPagos}</p>
+              )}
+              {pagosVista.map((p, i) => (
                 <div key={i} className="grid grid-cols-1 gap-1 px-5 py-4 sm:grid-cols-12 sm:items-center sm:gap-2">
-                  <span className="text-ink sm:col-span-4">{p.concepto[language]}</span>
+                  <span className="text-ink sm:col-span-4">
+                    {p.concepto[language]}
+                    {p.motivoRechazo && (
+                      <span className="mt-0.5 block text-xs text-rose-600">{t.motivoRechazo}: {p.motivoRechazo}</span>
+                    )}
+                  </span>
                   <span className="text-ink/50 sm:col-span-2">{p.fecha}</span>
                   <span className="text-ink sm:col-span-2">USD ${p.monto}</span>
                   <span className="text-ink/50 sm:col-span-2">{p.metodo[language]}</span>
@@ -447,7 +542,7 @@ export default function PatientPortalPage() {
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${pagoEstadoEstilo[p.estado]}`}>
                       {p.estado === 'pagado' ? t.estadoPagado : p.estado === 'pendiente' ? t.estadoPendiente : p.estado === 'revision' ? t.estadoRevision : t.estadoRechazado}
                     </span>
-                    {(p.estado === 'pendiente' || p.estado === 'rechazado') && (
+                    {!enBase && (p.estado === 'pendiente' || p.estado === 'rechazado') && (
                       <button 
                         onClick={() => setPaymentModalData({ isOpen: true, monto: p.monto, concepto: p.concepto[language] })}
                         className="rounded bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-700 hover:bg-amber-200"
@@ -470,7 +565,10 @@ export default function PatientPortalPage() {
             <p className="mt-1 text-sm text-ink/50">{t.notifSub}</p>
           </div>
           <div className="space-y-2">
-            {NOTIFICACIONES_PACIENTE.map((n, i) => (
+            {enBase && notifReales.length === 0 && (
+              <p className="rounded-2xl border border-brand-100 bg-white p-6 text-sm text-ink/45">{t.sinNotif}</p>
+            )}
+            {(enBase ? notifReales : NOTIFICACIONES_PACIENTE).map((n, i) => (
               <div key={i} className="flex gap-3 rounded-2xl border border-brand-100 bg-white p-4 shadow-soft">
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-600">
                   <Bell size={16} />
@@ -490,11 +588,9 @@ export default function PatientPortalPage() {
         <PaymentCheckoutModal
           monto={paymentModalData.monto}
           concepto={paymentModalData.concepto}
+          citaId={paymentModalData.citaId}
           onClose={() => setPaymentModalData(null)}
-          onSuccess={() => {
-            setPaymentModalData(null);
-            // Here we would typically refresh data, for now just close the modal
-          }}
+          onSuccess={() => void pagoReportado()}
         />
       )}
     </PortalLayout>

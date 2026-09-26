@@ -8,6 +8,7 @@ import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useInstructorSchedule } from '@/context/InstructorScheduleContext';
 import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
 import { type CitaInstructor } from '@/data/citasInstructorData';
+import { useDialogo } from '@/context/DialogoContext';
 import {
   DIAS_SEMANA, DIA_LABEL, type DiaSemana, type BloqueoAgenda, type TipoBloqueo,
 } from '@/data/agendaDisponibilidadInstructorData';
@@ -151,6 +152,7 @@ function generarCeldasMes(anio: number, mes: number): (string | null)[] {
 export default function AgendaDisponibilidadPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
+  const dialogo = useDialogo();
   const navItems = buildInstructorNav(INSTRUCTOR_NAV_LABELS, ['agenda'], ['constructor', 'citas', 'cursos', 'vivo', 'evaluaciones', 'notif', 'agenda', 'perfil']);
 
   const { horarioSemanal, configSesiones, bloqueos, enBase, errorAgenda, actualizarDia, actualizarConfigSesiones, guardarHorario, agregarBloqueo, quitarBloqueo } = useInstructorSchedule();
@@ -191,8 +193,8 @@ export default function AgendaDisponibilidadPage() {
     window.setTimeout(() => setGuardadoOk(false), 1800);
   }
 
-  function quitarBloqueoConfirm(id: string) {
-    if (!window.confirm(t.confirmarQuitar)) return;
+  async function quitarBloqueoConfirm(id: string) {
+    if (!(await dialogo.confirmar(t.confirmarQuitar))) return;
     quitarBloqueo(id);
   }
 
@@ -266,8 +268,8 @@ export default function AgendaDisponibilidadPage() {
     reagendarCita(id, draftFecha, draftHora);
     setReagendarId(null);
   }
-  function cancelarCitaConflicto(id: string) {
-    if (!window.confirm(t.confirmCancelarCita)) return;
+  async function cancelarCitaConflicto(id: string) {
+    if (!(await dialogo.confirmar(t.confirmCancelarCita, { peligro: true }))) return;
     cambiarEstado(id, 'Cancelada');
   }
 
