@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, GraduationCap, CalendarDays, CreditCard, Bell, UserCog,
@@ -8,6 +8,7 @@ import PortalLayout, { type PortalNavItem } from '@/components/site/PortalLayout
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useDialogo } from '@/context/DialogoContext';
+import { datosCuenta } from '@/lib/api/perfil';
 
 type Tab = 'datos' | 'seguridad' | 'preferencias';
 
@@ -34,6 +35,13 @@ const text = {
     desactivarCuenta: 'Desactivar cuenta',
     confirmarDesactivar: '¿Seguro que quieres desactivar tu cuenta? Se cerrará tu sesión.',
     cambiarFoto: 'Cambiar foto',
+    correoSoloLectura: 'Para cambiar el correo de acceso, escríbenos desde Contacto.',
+    proximamente: 'Próximamente',
+    errClaveCorta: 'La nueva contraseña debe tener al menos 6 caracteres.',
+    errClaveNoCoincide: 'La confirmación no coincide con la nueva contraseña.',
+    errClaveActual: 'Escribe tu contraseña actual.',
+    contrasenaActualizada: 'Contraseña actualizada ✓',
+    guardando: 'Guardando…',
   },
   en: {
     aulaVirtual: 'Virtual Classroom', misCitas: 'My appointments', misPagos: 'My payments', notificaciones: 'Notifications', miPerfil: 'My profile',
@@ -57,6 +65,13 @@ const text = {
     desactivarCuenta: 'Deactivate account',
     confirmarDesactivar: 'Are you sure you want to deactivate your account? This will sign you out.',
     cambiarFoto: 'Change photo',
+    correoSoloLectura: 'To change your sign-in email, write to us from Contact.',
+    proximamente: 'Coming soon',
+    errClaveCorta: 'The new password must be at least 6 characters.',
+    errClaveNoCoincide: 'The confirmation does not match the new password.',
+    errClaveActual: 'Enter your current password.',
+    contrasenaActualizada: 'Password updated ✓',
+    guardando: 'Saving…',
   },
 } as const;
 
@@ -66,7 +81,7 @@ function iniciales(nombre: string) {
 }
 
 export default function PatientProfilePage() {
-  const { user, updateProfile, logout } = useSiteAuth();
+  const { user, updateProfile, logout, esSesionReal, cambiarContrasena, cerrarOtrasSesiones } = useSiteAuth();
   const { language, setLanguage } = useSiteLanguage();
   const navigate = useNavigate();
   const t = text[language];
@@ -75,17 +90,50 @@ export default function PatientProfilePage() {
 
   const [tab, setTab] = useState<Tab>('datos');
   const [guardado, setGuardado] = useState(false);
+  const [mensajeGuardado, setMensajeGuardado] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const [claveActual, setClaveActual] = useState('');
+  const [claveNueva, setClaveNueva] = useState('');
+  const [claveConfirmar, setClaveConfirmar] = useState('');
 
   const [nombre, setNombre] = useState(user?.nombre || '');
   const [correo, setCorreo] = useState(user?.correo || '');
   const [telefono, setTelefono] = useState(user?.telefono || '');
   const [sobreMi, setSobreMi] = useState(user?.sobreMi || '');
 
+  // Con sesión real, fechas de la cuenta desde Supabase Auth.
+  const [cuenta, setCuenta] = useState<{ creadaEn: string | null; ultimoAcceso: string | null } | null>(null);
+  useEffect(() => {
+    if (esSesionReal) void datosCuenta().then(setCuenta);
+  }, [esSesionReal]);
+  const formatoFecha = (iso: string | null | undefined, conHora = false) =>
+    iso
+      ? new Date(iso).toLocaleString(language === 'es' ? 'es-ES' : 'en-US', {
+          day: 'numeric', month: 'short', year: 'numeric', ...(conHora ? { hour: '2-digit', minute: '2-digit' } : {}),
+        })
+      : '—';
+
   const [dosFactor, setDosFactor] = useState(false);
-  const [notifCitas, setNotifCitas] = useState(true);
-  const [notifCursos, setNotifCursos] = useState(true);
-  const [notifPromos, setNotifPromos] = useState(false);
+  const [notifCitas, setNotifCitas] = useState(user?.preferencias?.notifCitas ?? true);
+  const [notifCursos, setNotifCursos] = useState(user?.preferencias?.notifCursos ?? true);
+  const [notifPromos, setNotifPromos] = useState(user?.preferencias?.notifPromos ?? false);
+  // WhatsApp aún no existe como canal: solo se guarda en modo demo.
   const [notifWhatsapp, setNotifWhatsapp] = useState(true);
+
+  // Con sesión real el perfil llega de la base después del primer render:
+  // se refrescan los campos cuando cambia.
+  useEffect(() => {
+    if (!user) return;
+    setNombre(user.nombre);
+    setCorreo(user.correo);
+    setTelefono(user.telefono || '');
+    setSobreMi(user.sobreMi || '');
+    setNotifCitas(user.preferencias?.notifCitas ?? true);
+    setNotifCursos(user.preferencias?.notifCursos ?? true);
+    setNotifPromos(user.preferencias?.notifPromos ?? false);
+  }, [user]);
 
   const navItems: PortalNavItem[] = [
     { key: 'dash', label: { es: 'Dashboard', en: 'Dashboard' }, icon: LayoutDashboard, disponible: true, to: '/portal-paciente' },
@@ -96,33 +144,76 @@ export default function PatientProfilePage() {
     { key: 'perfil', label: { es: t.miPerfil, en: t.miPerfil }, icon: UserCog, disponible: true },
   ];
 
-  function mostrarGuardado() {
+  function mostrarGuardado(mensaje?: string) {
+    setError(null);
+    setMensajeGuardado(mensaje ?? null);
     setGuardado(true);
     window.setTimeout(() => setGuardado(false), 2500);
   }
 
-  function guardarDatos(e: FormEvent) {
-    e.preventDefault();
-    updateProfile({ nombre: nombre.trim() || user?.nombre, correo: correo.trim(), telefono: telefono.trim(), sobreMi: sobreMi.trim() });
-    mostrarGuardado();
+  // Ejecuta un guardado y muestra el resultado (éxito o error de la base).
+  async function conResultado(accion: () => Promise<{ error: string | null }>, mensaje?: string) {
+    setGuardando(true);
+    setGuardado(false);
+    const { error: err } = await accion();
+    setGuardando(false);
+    if (err) {
+      setError(err);
+      return false;
+    }
+    mostrarGuardado(mensaje);
+    return true;
   }
 
-  function guardarSeguridad(e: FormEvent) {
+  function guardarDatos(e: FormEvent) {
     e.preventDefault();
-    mostrarGuardado();
+    // "Sobre mí" solo existe en la ficha pública de profesionales; con sesión
+    // real del paciente no hay dónde guardarlo y el campo no se muestra.
+    void conResultado(() => updateProfile({
+      nombre: nombre.trim() || user?.nombre, correo: correo.trim(), telefono: telefono.trim(),
+      ...(esSesionReal ? {} : { sobreMi: sobreMi.trim() }),
+    }));
+  }
+
+  async function guardarSeguridad(e: FormEvent) {
+    e.preventDefault();
+    if (!esSesionReal) {
+      mostrarGuardado();
+      return;
+    }
+    if (!claveActual) return setError(t.errClaveActual);
+    if (claveNueva.length < 6) return setError(t.errClaveCorta);
+    if (claveNueva !== claveConfirmar) return setError(t.errClaveNoCoincide);
+    const listo = await conResultado(() => cambiarContrasena(claveActual, claveNueva), t.contrasenaActualizada);
+    if (listo) {
+      setClaveActual('');
+      setClaveNueva('');
+      setClaveConfirmar('');
+    }
   }
 
   function guardarPreferencias(e: FormEvent) {
     e.preventDefault();
-    mostrarGuardado();
+    void conResultado(() => updateProfile({ preferencias: { ...user?.preferencias, notifCitas, notifCursos, notifPromos } }));
+  }
+
+  async function cerrarTodas() {
+    const { error: err } = await cerrarOtrasSesiones();
+    if (err) return setError(err);
+    await logout();
+    navigate('/iniciar-sesion');
   }
 
   function onFotoSeleccionada(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      if (typeof reader.result === 'string') updateProfile({ foto: reader.result });
+      if (typeof reader.result === 'string') {
+        const foto = reader.result;
+        void conResultado(() => updateProfile({ foto }));
+      }
     };
     reader.readAsDataURL(file);
   }
@@ -141,6 +232,7 @@ export default function PatientProfilePage() {
       activeKey="perfil"
       onNavigate={() => {}}
       roleBadge={{ es: 'Paciente', en: 'Patient' }}
+      profileTo="/portal-paciente/perfil"
       backTo="/portal-paciente"
       backLabel={{ es: text.es.volverPanel, en: text.en.volverPanel }}
     >
@@ -177,11 +269,11 @@ export default function PatientProfilePage() {
           <div className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
             <div>
               <p className="text-xs text-ink/45">{t.cuentaCreada}</p>
-              <p className="text-ink">{language === 'es' ? '12 ene 2024' : 'Jan 12, 2024'}</p>
+              <p className="text-ink">{esSesionReal ? formatoFecha(cuenta?.creadaEn) : language === 'es' ? '12 ene 2024' : 'Jan 12, 2024'}</p>
             </div>
             <div>
               <p className="text-xs text-ink/45">{t.ultimoAcceso}</p>
-              <p className="text-ink">{language === 'es' ? '24 ago 2026 · 09:14' : 'Aug 24, 2026 · 9:14 AM'}</p>
+              <p className="text-ink">{esSesionReal ? formatoFecha(cuenta?.ultimoAcceso, true) : language === 'es' ? '24 ago 2026 · 09:14' : 'Aug 24, 2026 · 9:14 AM'}</p>
             </div>
           </div>
         </div>
@@ -192,7 +284,7 @@ export default function PatientProfilePage() {
         {(['datos', 'seguridad', 'preferencias'] as Tab[]).map((k) => (
           <button
             key={k}
-            onClick={() => { setTab(k); setGuardado(false); }}
+            onClick={() => { setTab(k); setGuardado(false); setError(null); }}
             className={`-mb-px whitespace-nowrap border-b-2 pb-3 text-sm font-semibold transition ${
               tab === k ? 'border-brand-600 text-brand-700' : 'border-transparent text-ink/45 hover:text-ink/70'
             }`}
@@ -204,8 +296,11 @@ export default function PatientProfilePage() {
 
       {guardado && (
         <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          <CheckCircle2 size={16} /> {t.guardado}
+          <CheckCircle2 size={16} /> {mensajeGuardado ?? t.guardado}
         </div>
+      )}
+      {error && (
+        <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</div>
       )}
 
       {tab === 'datos' && (
@@ -222,8 +317,10 @@ export default function PatientProfilePage() {
               <label className="mb-1 block text-sm font-medium text-ink">{t.correo}</label>
               <input
                 type="email" value={correo} onChange={(e) => setCorreo(e.target.value)}
-                className="w-full rounded-xl border border-brand-200 px-4 py-2.5 text-sm text-ink focus:border-brand-400"
+                readOnly={esSesionReal}
+                className="w-full rounded-xl border border-brand-200 px-4 py-2.5 text-sm text-ink focus:border-brand-400 read-only:bg-brand-50/50 read-only:text-ink/60"
               />
+              {esSesionReal && <p className="mt-1 text-xs text-ink/45">{t.correoSoloLectura}</p>}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-ink">{t.telefono}</label>
@@ -243,20 +340,22 @@ export default function PatientProfilePage() {
                 <option value="en">English</option>
               </select>
             </div>
-            <div className="sm:col-span-2">
-              <label className="mb-1 block text-sm font-medium text-ink">{t.sobreMi}</label>
-              <textarea
-                rows={3} value={sobreMi} onChange={(e) => setSobreMi(e.target.value)}
-                className="w-full rounded-xl border border-brand-200 px-4 py-2.5 text-sm text-ink focus:border-brand-400"
-              />
-            </div>
+            {!esSesionReal && (
+              <div className="sm:col-span-2">
+                <label className="mb-1 block text-sm font-medium text-ink">{t.sobreMi}</label>
+                <textarea
+                  rows={3} value={sobreMi} onChange={(e) => setSobreMi(e.target.value)}
+                  className="w-full rounded-xl border border-brand-200 px-4 py-2.5 text-sm text-ink focus:border-brand-400"
+                />
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={() => navigate('/portal-paciente')} className="rounded-full border border-brand-200 px-5 py-2.5 text-sm font-semibold text-ink/60 hover:bg-brand-50">
               {t.cancelar}
             </button>
-            <button type="submit" className="rounded-full bg-brand-gradient px-6 py-2.5 text-sm font-semibold text-white shadow-soft hover:opacity-90">
-              {t.guardarCambios}
+            <button type="submit" disabled={guardando} className="rounded-full bg-brand-gradient px-6 py-2.5 text-sm font-semibold text-white shadow-soft hover:opacity-90 disabled:opacity-60">
+              {guardando ? t.guardando : t.guardarCambios}
             </button>
           </div>
         </form>
@@ -267,29 +366,33 @@ export default function PatientProfilePage() {
           <h3 className="font-display font-semibold text-ink">{t.cambiarContrasena}</h3>
           <div>
             <label className="mb-1 block text-sm font-medium text-ink">{t.contrasenaActual}</label>
-            <input type="password" className="w-full rounded-xl border border-brand-200 px-4 py-2.5 text-sm text-ink focus:border-brand-400" />
+            <input type="password" autoComplete="current-password" value={claveActual} onChange={(e) => setClaveActual(e.target.value)} className="w-full rounded-xl border border-brand-200 px-4 py-2.5 text-sm text-ink focus:border-brand-400" />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-ink">{t.nuevaContrasena}</label>
-            <input type="password" className="w-full rounded-xl border border-brand-200 px-4 py-2.5 text-sm text-ink focus:border-brand-400" />
+            <input type="password" autoComplete="new-password" value={claveNueva} onChange={(e) => setClaveNueva(e.target.value)} className="w-full rounded-xl border border-brand-200 px-4 py-2.5 text-sm text-ink focus:border-brand-400" />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-ink">{t.confirmarContrasena}</label>
-            <input type="password" className="w-full rounded-xl border border-brand-200 px-4 py-2.5 text-sm text-ink focus:border-brand-400" />
+            <input type="password" autoComplete="new-password" value={claveConfirmar} onChange={(e) => setClaveConfirmar(e.target.value)} className="w-full rounded-xl border border-brand-200 px-4 py-2.5 text-sm text-ink focus:border-brand-400" />
           </div>
-          <button type="submit" className="rounded-full bg-brand-gradient px-6 py-2.5 text-sm font-semibold text-white shadow-soft hover:opacity-90">
-            {t.actualizarContrasena}
+          <button type="submit" disabled={guardando} className="rounded-full bg-brand-gradient px-6 py-2.5 text-sm font-semibold text-white shadow-soft hover:opacity-90 disabled:opacity-60">
+            {guardando ? t.guardando : t.actualizarContrasena}
           </button>
           <hr className="border-brand-100" />
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-ink">{t.verificacionDosPasos}</p>
+              <p className="text-sm font-medium text-ink">
+                {t.verificacionDosPasos}
+                {esSesionReal && <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-brand-600">{t.proximamente}</span>}
+              </p>
               <p className="text-xs text-ink/45">{t.verificacionDetalle}</p>
             </div>
             <button
               type="button"
               onClick={() => setDosFactor((v) => !v)}
-              className={`relative h-6 w-11 shrink-0 rounded-full transition ${dosFactor ? 'bg-brand-600' : 'bg-brand-100'}`}
+              disabled={esSesionReal}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 ${dosFactor ? 'bg-brand-600' : 'bg-brand-100'}`}
               aria-pressed={dosFactor}
               aria-label={t.verificacionDosPasos}
             >
@@ -299,7 +402,7 @@ export default function PatientProfilePage() {
           <div className="pt-2">
             <p className="mb-1 text-sm font-medium text-ink">{t.sesionesActivas}</p>
             <p className="text-xs text-ink/45">
-              {t.sesionInfo} · <button type="button" className="text-rose-500 hover:underline">{t.cerrarTodas}</button>
+              {t.sesionInfo} · <button type="button" onClick={() => void cerrarTodas()} className="text-rose-500 hover:underline">{t.cerrarTodas}</button>
             </p>
           </div>
         </form>
@@ -336,17 +439,21 @@ export default function PatientProfilePage() {
               <p className="mb-3 text-sm font-medium text-ink">{t.notifPrefs}</p>
               <div className="space-y-3 text-sm">
                 {[
-                  { label: t.recordatoriosCitas, value: notifCitas, set: setNotifCitas },
-                  { label: t.novedadesCursos, value: notifCursos, set: setNotifCursos },
-                  { label: t.promociones, value: notifPromos, set: setNotifPromos },
-                  { label: t.whatsapp, value: notifWhatsapp, set: setNotifWhatsapp },
+                  { label: t.recordatoriosCitas, value: notifCitas, set: setNotifCitas, pronto: false },
+                  { label: t.novedadesCursos, value: notifCursos, set: setNotifCursos, pronto: false },
+                  { label: t.promociones, value: notifPromos, set: setNotifPromos, pronto: false },
+                  { label: t.whatsapp, value: notifWhatsapp, set: setNotifWhatsapp, pronto: esSesionReal },
                 ].map((item) => (
                   <div key={item.label} className="flex items-center justify-between">
-                    <span className="text-ink">{item.label}</span>
+                    <span className="text-ink">
+                      {item.label}
+                      {item.pronto && <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-brand-600">{t.proximamente}</span>}
+                    </span>
                     <button
                       type="button"
                       onClick={() => item.set((v) => !v)}
-                      className={`relative h-6 w-11 shrink-0 rounded-full transition ${item.value ? 'bg-brand-600' : 'bg-brand-100'}`}
+                      disabled={item.pronto}
+                      className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 ${item.value && !item.pronto ? 'bg-brand-600' : 'bg-brand-100'}`}
                       aria-pressed={item.value}
                       aria-label={item.label}
                     >
@@ -358,8 +465,8 @@ export default function PatientProfilePage() {
             </div>
 
             <div className="flex justify-end">
-              <button type="submit" className="rounded-full bg-brand-gradient px-6 py-2.5 text-sm font-semibold text-white shadow-soft hover:opacity-90">
-                {t.guardarPreferencias}
+              <button type="submit" disabled={guardando} className="rounded-full bg-brand-gradient px-6 py-2.5 text-sm font-semibold text-white shadow-soft hover:opacity-90 disabled:opacity-60">
+                {guardando ? t.guardando : t.guardarPreferencias}
               </button>
             </div>
           </form>

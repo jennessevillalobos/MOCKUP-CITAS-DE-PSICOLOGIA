@@ -6,6 +6,7 @@ import { INSTRUCTOR_NAV_LABELS, buildInstructorNav } from '@/components/site/ins
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useDialogo } from '@/context/DialogoContext';
+import { datosCuenta } from '@/lib/api/perfil';
 
 type Tab = 'datos' | 'seguridad' | 'preferencias';
 
@@ -103,6 +104,18 @@ export default function InstructorProfilePage() {
   const [correo, setCorreo] = useState(user?.correo || '');
   const [telefono, setTelefono] = useState(user?.telefono || '');
   const [sobreMi, setSobreMi] = useState(user?.sobreMi || '');
+
+  // Con sesión real, fechas de la cuenta desde Supabase Auth.
+  const [cuenta, setCuenta] = useState<{ creadaEn: string | null; ultimoAcceso: string | null } | null>(null);
+  useEffect(() => {
+    if (esSesionReal) void datosCuenta().then(setCuenta);
+  }, [esSesionReal]);
+  const formatoFecha = (iso: string | null | undefined, conHora = false) =>
+    iso
+      ? new Date(iso).toLocaleString(language === 'es' ? 'es-ES' : 'en-US', {
+          day: 'numeric', month: 'short', year: 'numeric', ...(conHora ? { hour: '2-digit', minute: '2-digit' } : {}),
+        })
+      : '—';
 
   const [dosFactor, setDosFactor] = useState(false);
   const [notifCitas, setNotifCitas] = useState(user?.preferencias?.notifCitas ?? true);
@@ -251,11 +264,11 @@ export default function InstructorProfilePage() {
           <div className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
             <div>
               <p className="text-xs text-ink/45">{t.cuentaCreada}</p>
-              <p className="text-ink">{language === 'es' ? '18 mar 2023' : 'Mar 18, 2023'}</p>
+              <p className="text-ink">{esSesionReal ? formatoFecha(cuenta?.creadaEn) : language === 'es' ? '18 mar 2023' : 'Mar 18, 2023'}</p>
             </div>
             <div>
               <p className="text-xs text-ink/45">{t.ultimoAcceso}</p>
-              <p className="text-ink">{language === 'es' ? '29 ago 2026 · 09:14' : 'Aug 29, 2026 · 9:14 AM'}</p>
+              <p className="text-ink">{esSesionReal ? formatoFecha(cuenta?.ultimoAcceso, true) : language === 'es' ? '29 ago 2026 · 09:14' : 'Aug 29, 2026 · 9:14 AM'}</p>
             </div>
             <div>
               <p className="text-xs text-ink/45">{t.rolActivo}</p>

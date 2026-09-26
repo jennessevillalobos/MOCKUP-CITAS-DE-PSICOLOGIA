@@ -266,6 +266,7 @@ export default function PatientPortalPage() {
       activeKey={tab === 'detalle' ? 'citas' : tab}
       onNavigate={(k) => (k === 'notif' ? abrirNotificaciones() : setTab(k as Tab))}
       roleBadge={{ es: 'Paciente', en: 'Patient' }}
+      profileTo="/portal-paciente/perfil"
       sidebarExtra={
         <div className="rounded-2xl bg-white/10 p-4 text-white">
           <p className="mb-1 text-sm font-semibold">{language === 'es' ? '¿Necesitas otra cita?' : 'Need another session?'}</p>

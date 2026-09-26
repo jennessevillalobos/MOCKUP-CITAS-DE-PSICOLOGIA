@@ -10,6 +10,8 @@ export interface PreferenciasUsuario {
   notifReservas?: boolean;
   notifMensajes?: boolean;
   notifPromos?: boolean;
+  // Paciente/estudiante: avisos de cursos (migración 026).
+  notifCursos?: boolean;
 }
 
 export interface PerfilReal {
@@ -117,6 +119,15 @@ export async function cambiarContrasena(correo: string, actual: string, nueva: s
   const { error } = await supabase.auth.updateUser({ password: nueva });
   if (error) return fail(toServiceError(error));
   return ok(null);
+}
+
+// Fechas de la cuenta de Auth (creación y último inicio de sesión).
+export async function datosCuenta(): Promise<{ creadaEn: string | null; ultimoAcceso: string | null } | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return null;
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) return null;
+  return { creadaEn: data.user.created_at ?? null, ultimoAcceso: data.user.last_sign_in_at ?? null };
 }
 
 export async function cerrarTodasLasSesiones(): Promise<Result<null>> {
