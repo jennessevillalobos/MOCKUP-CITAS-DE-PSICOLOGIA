@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Eye, EyeOff, KeyRound, ArrowLeft, Languages } from 'lucide-react';
 import { useAdminAuth } from '@/context/AdminAuthContext';
@@ -15,6 +15,7 @@ const loginText = {
     emailErr: 'Correo no válido.', passErr: 'Ingresa tu contraseña.', enter: 'Entrar al panel', or: 'o',
     demo: 'Entrar con cuenta demo', hint: 'Prueba: cualquier correo válido y contraseña de 6+ caracteres, o usa la cuenta demo.',
     back: 'Volver al sitio', showPass: 'Mostrar contraseña', hidePass: 'Ocultar contraseña',
+    noAdmin: 'Esta cuenta no tiene permisos de administración.', red: 'No se pudo conectar. Intenta de nuevo.',
   },
   en: {
     backoffice: 'Backoffice', title: 'Admin panel',
@@ -23,11 +24,12 @@ const loginText = {
     emailErr: 'Invalid email.', passErr: 'Enter your password.', enter: 'Sign in', or: 'or',
     demo: 'Sign in with demo account', hint: 'Try: any valid email and a 6+ character password, or use the demo account.',
     back: 'Back to site', showPass: 'Show password', hidePass: 'Hide password',
+    noAdmin: 'This account does not have admin permissions.', red: 'Could not connect. Please try again.',
   },
 } as const;
 
 export default function AdminLoginPage() {
-  const { login, loginDemo } = useAdminAuth();
+  const { login, loginDemo, esReal, user } = useAdminAuth();
   const { lang, toggle } = useAdminLanguage();
   const t = loginText[lang];
   const navigate = useNavigate();
@@ -36,12 +38,18 @@ export default function AdminLoginPage() {
   const [pass, setPass] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [errores, setErrores] = useState<{ correo?: string; pass?: string }>({});
-  const [errorGeneral, setErrorGeneral] = useState(false);
+  // Mensaje de error general (credenciales, sin rol de administrador o red).
+  const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
   const [cargando, setCargando] = useState<'form' | 'demo' | null>(null);
 
-  function handleSubmit(e: FormEvent) {
+  // Con una sesión de administrador ya válida, directo al panel.
+  useEffect(() => {
+    if (user) navigate('/admin/dashboard', { replace: true });
+  }, [user, navigate]);
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setErrorGeneral(false);
+    setErrorGeneral(null);
 
     const correoValido = emailRe.test(correo.trim());
     const passValido = pass.length > 0;
@@ -52,15 +60,13 @@ export default function AdminLoginPage() {
     if (!correoValido || !passValido) return;
 
     setCargando('form');
-    setTimeout(() => {
-      setCargando(null);
-      if (pass.length >= 6) {
-        login(correo.trim());
-        navigate('/admin/dashboard');
-      } else {
-        setErrorGeneral(true);
-      }
-    }, 600);
+    const error = await login(correo.trim(), pass);
+    setCargando(null);
+    if (error) {
+      setErrorGeneral(error === 'no_admin' ? t.noAdmin : error === 'red' ? t.red : t.wrongCreds);
+      return;
+    }
+    navigate('/admin/dashboard');
   }
 
   function handleDemo() {
@@ -106,7 +112,7 @@ export default function AdminLoginPage() {
           {errorGeneral && (
             <div className="mb-4 flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               <span>⚠️</span>
-              <span>{t.wrongCreds}</span>
+              <span>{errorGeneral}</span>
             </div>
           )}
 
@@ -156,6 +162,8 @@ export default function AdminLoginPage() {
             </button>
           </form>
 
+          {/* La cuenta demo solo existe sin Supabase; con Supabase se exige el rol administrador. */}
+          {!esReal && <>
           <div className="my-5 flex items-center gap-3 text-xs text-ink/40">
             <span className="h-px flex-1 bg-brand-100" />
             <span>{t.or}</span>
@@ -180,6 +188,7 @@ export default function AdminLoginPage() {
           <p className="mt-3 text-center text-[11px] text-ink/40">
             {t.hint}
           </p>
+          </>}
         </section>
 
         <div className="mt-6 flex items-center justify-center gap-2 text-xs font-semibold text-ink/50">

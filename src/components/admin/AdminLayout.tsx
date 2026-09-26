@@ -26,7 +26,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   async function handleLogout() {
     if (!(await dialogo.confirmar(t.logoutConfirm))) return;
-    logout();
+    await logout();
     navigate('/admin');
   }
 
