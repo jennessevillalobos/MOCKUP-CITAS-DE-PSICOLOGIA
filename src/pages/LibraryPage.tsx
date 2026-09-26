@@ -11,6 +11,7 @@ import { createDownloadLink } from '@/lib/api/edgeFunctions';
 import { useDialogo } from '@/context/DialogoContext';
 import { Link } from 'react-router-dom';
 import { cargarMiBiblioteca, urlArchivoProducto, type ItemBiblioteca } from '@/lib/api/productosEstudiante';
+import { optimizarImagen } from '@/lib/integrations/cloudinary';
 
 // pdf.js solo se descarga al abrir un libro.
 const LectorPdf = lazy(() => import('@/components/site/LectorPdf'));
@@ -130,7 +131,7 @@ function BibliotecaReal({ tab, busqueda, t, language, correo }: { tab: Tab; busq
       {lista.map((i) => (
         <article key={i.compraId} className="overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-soft">
           <div className="grid h-32 place-items-center bg-brand-gradient text-4xl text-white">
-            {i.portada ? <img src={i.portada} alt="" className="h-full w-full object-cover" /> : i.tipo === 'video' ? '🎬' : '📘'}
+            {i.portada ? <img src={optimizarImagen(i.portada, 600)} alt="" className="h-full w-full object-cover" /> : i.tipo === 'video' ? '🎬' : '📘'}
           </div>
           <div className="p-4">
             <h3 className="text-sm font-semibold text-ink">{i.titulo}</h3>

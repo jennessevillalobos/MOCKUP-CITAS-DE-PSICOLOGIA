@@ -1,5 +1,6 @@
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { ok, fail, toServiceError, type Result } from '@/lib/supabase/errors';
+import { subirImagenPublica } from '@/lib/integrations/cloudinary';
 
 // Perfil del usuario con sesión real: datos personales en `usuarios` y, si es
 // profesional, su ficha pública en `profesionales` (migración 014 limita las
@@ -88,11 +89,17 @@ export async function guardarPerfil(
 }
 
 // Sube la foto (data URL de un <input type="file">) y devuelve su URL pública.
+// Va a Cloudinary (imágenes públicas); si Cloudinary aún no está configurado,
+// usa el bucket público `avatares` de Supabase como hasta ahora.
 export async function subirFotoPerfil(userId: string, dataUrl: string): Promise<Result<string>> {
   const supabase = getSupabaseClient();
   if (!supabase || !isSupabaseConfigured()) return notConfigured();
 
   const blob = await (await fetch(dataUrl)).blob();
+  const enCloudinary = await subirImagenPublica(blob, 'avatar');
+  if (!enCloudinary.error) return ok(enCloudinary.data);
+  if (enCloudinary.error.code !== 'config_error') return fail(enCloudinary.error);
+
   const extension = blob.type === 'image/png' ? 'png' : blob.type === 'image/webp' ? 'webp' : 'jpg';
   const ruta = `${userId}/avatar.${extension}`;
 

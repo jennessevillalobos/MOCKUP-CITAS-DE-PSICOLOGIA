@@ -1,5 +1,6 @@
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { ok, fail, toServiceError, type Result } from '@/lib/supabase/errors';
+import { subirImagenPublica } from '@/lib/integrations/cloudinary';
 
 // "Mis productos" de la profesional (migraciones 034–035): subir, reemplazar
 // o quitar el archivo de cada producto digital en el bucket privado
@@ -16,6 +17,8 @@ export interface ProductoProfesional {
   estado: 'activo' | 'inactivo';
   archivo: string | null;
   descargaPermitida: boolean;
+  // Portada pública (Cloudinary, migración 038); null = sin portada.
+  portada: string | null;
   ventas: number;
   pagosEnRevision: number;
 }
@@ -85,6 +88,27 @@ export async function quitarArchivoProducto(producto: ProductoProfesional): Prom
   const { error } = await supabase.rpc('asignar_archivo_producto', { p_producto_id: producto.id, p_ruta: null });
   if (error) return fail(toServiceError(error));
   if (producto.archivo) await supabase.storage.from('productos').remove([producto.archivo]);
+  return ok(null);
+}
+
+// Sube la portada a Cloudinary (subida firmada) y la guarda en el producto.
+export async function subirPortadaProducto(producto: ProductoProfesional, imagen: File): Promise<Result<string>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+
+  const subida = await subirImagenPublica(imagen, 'producto', producto.clave);
+  if (subida.error) return fail(subida.error);
+  const { error } = await supabase.rpc('asignar_portada_producto', { p_producto_id: producto.id, p_url: subida.data });
+  if (error) return fail(toServiceError(error));
+  return ok(subida.data);
+}
+
+export async function quitarPortadaProducto(productoId: number): Promise<Result<null>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+
+  const { error } = await supabase.rpc('asignar_portada_producto', { p_producto_id: productoId, p_url: null });
+  if (error) return fail(toServiceError(error));
   return ok(null);
 }
 

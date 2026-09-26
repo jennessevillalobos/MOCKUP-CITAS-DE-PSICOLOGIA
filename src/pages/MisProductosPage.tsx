@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, Film, FileCheck2, FileWarning, Upload, Trash2, Loader2 } from 'lucide-react';
+import { BookOpen, Film, FileCheck2, FileWarning, Upload, Trash2, Loader2, ImagePlus } from 'lucide-react';
 import PortalLayout from '@/components/site/PortalLayout';
 import { INSTRUCTOR_NAV_LABELS, buildInstructorNav } from '@/components/site/instructorNav';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
@@ -8,8 +8,10 @@ import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useDialogo } from '@/context/DialogoContext';
 import {
   cargarMisProductos, subirArchivoProducto, quitarArchivoProducto, cambiarDescargaProducto,
+  subirPortadaProducto, quitarPortadaProducto,
   FORMATOS_POR_TIPO, TAMANO_MAXIMO_MB, type ProductoProfesional,
 } from '@/lib/api/productosProfesional';
+import { optimizarImagen, TIPOS_IMAGEN } from '@/lib/integrations/cloudinary';
 
 // "Mis productos": productos digitales de la profesional (Tienda). Aquí sube
 // el archivo que reciben los compradores en su Biblioteca y decide si pueden
@@ -30,6 +32,8 @@ const text = {
     confirmQuitar: '¿Quitar el archivo? Los compradores dejarán de poder abrirlo hasta que subas otro.',
     confirmReemplazar: 'Los compradores recibirán el archivo nuevo. ¿Continuar?',
     listo: 'Archivo guardado ✓',
+    portada: 'Portada', subirPortada: 'Subir portada', cambiarPortada: 'Cambiar portada', portadaDet: 'Imagen pública de la Tienda y la Biblioteca · JPG, PNG o WebP',
+    cloudinaryNoConfig: 'Las imágenes aún no están configuradas (Cloudinary). Pide a la administración que lo active.',
   },
   en: {
     volverPortal: 'Back to panel',
@@ -45,6 +49,8 @@ const text = {
     confirmQuitar: 'Remove the file? Buyers will not be able to open it until you upload another.',
     confirmReemplazar: 'Buyers will receive the new file. Continue?',
     listo: 'File saved ✓',
+    portada: 'Cover', subirPortada: 'Upload cover', cambiarPortada: 'Change cover', portadaDet: 'Public image for the Store and Library · JPG, PNG or WebP',
+    cloudinaryNoConfig: 'Images are not configured yet (Cloudinary). Ask the administrator to enable it.',
   },
 } as const;
 
@@ -60,6 +66,8 @@ export default function MisProductosPage() {
   const [ocupadoId, setOcupadoId] = useState<number | null>(null);
   const [listoId, setListoId] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const portadaRef = useRef<HTMLInputElement>(null);
+  const [portadaId, setPortadaId] = useState<number | null>(null);
   const destinoRef = useRef<ProductoProfesional | null>(null);
 
   const recargar = useCallback(async () => {
@@ -105,6 +113,30 @@ export default function MisProductosPage() {
     await recargar();
   }
 
+  function elegirPortada(p: ProductoProfesional) {
+    destinoRef.current = p;
+    portadaRef.current?.click();
+  }
+
+  async function alSeleccionarPortada(e: ChangeEvent<HTMLInputElement>) {
+    const imagen = e.target.files?.[0];
+    e.target.value = '';
+    const p = destinoRef.current;
+    if (!imagen || !p) return;
+    setError(null);
+    setPortadaId(p.id);
+    const res = await subirPortadaProducto(p, imagen);
+    setPortadaId(null);
+    if (res.error) return setError(`${p.titulo}: ${res.error.code === 'config_error' ? t.cloudinaryNoConfig : res.error.message}`);
+    await recargar();
+  }
+
+  async function quitarPortada(p: ProductoProfesional) {
+    const res = await quitarPortadaProducto(p.id);
+    if (res.error) return setError(res.error.message);
+    await recargar();
+  }
+
   async function alternarDescarga(p: ProductoProfesional) {
     const res = await cambiarDescargaProducto(p.id, !p.descargaPermitida);
     if (res.error) return setError(res.error.message);
@@ -127,6 +159,7 @@ export default function MisProductosPage() {
       </div>
 
       <input ref={inputRef} type="file" className="hidden" onChange={(e) => void alSeleccionar(e)} />
+      <input ref={portadaRef} type="file" accept={TIPOS_IMAGEN} className="hidden" onChange={(e) => void alSeleccionarPortada(e)} />
 
       {!esSesionReal && <p className="rounded-2xl border border-brand-100 bg-white p-6 text-sm text-ink/55">{t.soloReal}</p>}
       {error && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</p>}
@@ -140,7 +173,11 @@ export default function MisProductosPage() {
           return (
             <div key={p.id} className="rounded-2xl border border-brand-100 bg-white p-5 shadow-soft">
               <div className="flex flex-wrap items-start gap-4">
-                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600"><Icono size={20} /></span>
+                {p.portada ? (
+                  <img src={optimizarImagen(p.portada, 160)} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+                ) : (
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600"><Icono size={20} /></span>
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="font-display font-semibold text-ink">{p.titulo}</h2>
@@ -188,6 +225,21 @@ export default function MisProductosPage() {
                 )}
               </div>
               <p className="mt-1 text-[11px] text-ink/40">{p.tipo === 'video' ? t.formatosVideo : t.formatosLibro}</p>
+
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => elegirPortada(p)}
+                  disabled={portadaId === p.id}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 px-4 py-2 text-xs font-semibold text-ink hover:bg-brand-50 disabled:opacity-60"
+                >
+                  {portadaId === p.id ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
+                  {portadaId === p.id ? t.subiendo : p.portada ? t.cambiarPortada : t.subirPortada}
+                </button>
+                {p.portada && portadaId !== p.id && (
+                  <button onClick={() => void quitarPortada(p)} className="text-xs font-semibold text-rose-600 hover:underline">{t.quitar}</button>
+                )}
+                <span className="text-[11px] text-ink/40">{t.portadaDet}</span>
+              </div>
 
               <div className="mt-3 flex items-center justify-between gap-4">
                 <div>

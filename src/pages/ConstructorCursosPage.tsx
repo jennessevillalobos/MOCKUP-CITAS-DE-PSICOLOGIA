@@ -9,6 +9,7 @@ import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import type { ModuloBuilder, ReglaDesbloqueo } from '@/data/courseBuilderData';
 import { useInstructorCourses } from '@/context/InstructorCoursesContext';
 import { CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
+import { subirImagenPublica, optimizarImagen, TIPOS_IMAGEN } from '@/lib/integrations/cloudinary';
 
 const logo = '/src/assets/logos/1_(1).png';
 type Tab = 'clase' | 'datos';
@@ -41,6 +42,8 @@ const text = {
     precio: 'Precio', moneda: 'Moneda', planesPago: 'Planes de pago',
     unicoCuotas: 'Único + cuotas', soloUnico: 'Solo pago único',
     imagenCurso: 'Imagen del curso', cambiar: '✎ Cambiar', recomendado: 'Recomendado 1280×720px',
+    subiendoImagen: 'Subiendo…', quitarImagen: 'Quitar',
+    cloudinaryNoConfig: 'Las imágenes aún no están configuradas (Cloudinary). Pide a la administración que lo active.',
     estado: 'Estado',
     estadoAyuda: 'En borrador solo tú lo ves. Publicado aparece en el catálogo.',
     principiante: 'Principiante', intermedio: 'Intermedio', avanzado: 'Avanzado',
@@ -73,6 +76,8 @@ const text = {
     precio: 'Price', moneda: 'Currency', planesPago: 'Payment plans',
     unicoCuotas: 'One-time + installments', soloUnico: 'One-time payment only',
     imagenCurso: 'Course image', cambiar: '✎ Change', recomendado: 'Recommended 1280×720px',
+    subiendoImagen: 'Uploading…', quitarImagen: 'Remove',
+    cloudinaryNoConfig: 'Images are not configured yet (Cloudinary). Ask the administrator to enable it.',
     estado: 'Status',
     estadoAyuda: 'Draft is only visible to you. Published appears in the catalog.',
     principiante: 'Beginner', intermedio: 'Intermediate', avanzado: 'Advanced',
@@ -118,7 +123,7 @@ export default function ConstructorCursosPage() {
 function ConstructorCursosInner({ cursoKey }: { cursoKey: string }) {
   const { language, setLanguage } = useSiteLanguage();
   const t = text[language];
-  const { cursos, modulosPorCurso, metaCursos, estadoGuardado, errorCursos, actualizarInfo, actualizarModulos } = useInstructorCourses();
+  const { cursos, modulosPorCurso, metaCursos, estadoGuardado, errorCursos, actualizarInfo, actualizarModulos, enBase } = useInstructorCourses();
 
   const info = cursos[cursoKey] ?? CURSOS_INFO_DEMO.nuevo;
   const modulos = modulosPorCurso[cursoKey] ?? [];
@@ -128,6 +133,26 @@ function ConstructorCursosInner({ cursoKey }: { cursoKey: string }) {
   const [selModulo, setSelModulo] = useState<string | null>(modulos[0]?.id ?? null);
   const [selItem, setSelItem] = useState<string | null>(modulos[0]?.items[0]?.id ?? null);
   const [guardadoOk, setGuardadoOk] = useState(false);
+  // Portada del curso: con sesión real va a Cloudinary (subida firmada); en demo, data URL local.
+  const portadaRef = useRef<HTMLInputElement>(null);
+  const [subiendoPortada, setSubiendoPortada] = useState(false);
+  const [errorPortada, setErrorPortada] = useState<string | null>(null);
+
+  async function alElegirPortada(archivo: File | undefined) {
+    if (!archivo) return;
+    setErrorPortada(null);
+    if (!enBase) {
+      const lector = new FileReader();
+      lector.onload = () => { if (typeof lector.result === 'string') actualizarInfo(cursoKey, { imagen: lector.result }); };
+      lector.readAsDataURL(archivo);
+      return;
+    }
+    setSubiendoPortada(true);
+    const res = await subirImagenPublica(archivo, 'curso', cursoKey);
+    setSubiendoPortada(false);
+    if (res.error) return setErrorPortada(res.error.code === 'config_error' ? t.cloudinaryNoConfig : res.error.message);
+    actualizarInfo(cursoKey, { imagen: res.data });
+  }
 
   // Con la base, los módulos llegan después del primer render: se selecciona el primero.
   useEffect(() => {
@@ -597,13 +622,34 @@ function ConstructorCursosInner({ cursoKey }: { cursoKey: string }) {
                   <label className="mb-2 block text-sm font-medium text-ink">{t.imagenCurso}</label>
                   <div className="relative mb-2 overflow-hidden rounded-xl border border-brand-100">
                     {info.imagen ? (
-                      <img src={info.imagen} alt="" className="h-32 w-full object-cover" />
+                      <img src={optimizarImagen(info.imagen, 640)} alt="" className="h-32 w-full object-cover" />
                     ) : (
                       <div className={`h-32 w-full ${meta?.color ?? 'bg-brand-300'}`} />
                     )}
-                    <button className="absolute bottom-2 right-2 rounded-full bg-ink/70 px-3 py-1 text-xs text-white">{t.cambiar}</button>
+                    <input
+                      ref={portadaRef}
+                      type="file"
+                      accept={TIPOS_IMAGEN}
+                      className="hidden"
+                      onChange={(e) => { void alElegirPortada(e.target.files?.[0]); e.target.value = ''; }}
+                    />
+                    <div className="absolute bottom-2 right-2 flex gap-1.5">
+                      {info.imagen && !subiendoPortada && (
+                        <button onClick={() => actualizarInfo(cursoKey, { imagen: '' })} className="rounded-full bg-ink/70 px-3 py-1 text-xs text-white">
+                          {t.quitarImagen}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => portadaRef.current?.click()}
+                        disabled={subiendoPortada}
+                        className="rounded-full bg-ink/70 px-3 py-1 text-xs text-white disabled:opacity-60"
+                      >
+                        {subiendoPortada ? t.subiendoImagen : t.cambiar}
+                      </button>
+                    </div>
                   </div>
                   <p className="text-xs text-ink/45">{t.recomendado}</p>
+                  {errorPortada && <p role="alert" className="mt-2 text-xs text-rose-600">{errorPortada}</p>}
                 </div>
                 <div className="rounded-2xl border border-brand-100 bg-white p-5">
                   <label className="mb-2 block text-sm font-medium text-ink">{t.estado}</label>

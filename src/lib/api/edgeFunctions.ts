@@ -297,3 +297,20 @@ export interface SendContactInput {
 export async function sendContact(input: SendContactInput): Promise<Result<{ guardado: boolean; correo_enviado: boolean }>> {
   return callEdgeFunction<{ guardado: boolean; correo_enviado: boolean }>('send-contact', input, { publica: true });
 }
+
+export type DestinoImagen = 'avatar' | 'curso' | 'producto';
+
+export interface FirmaImagenOutput {
+  // Endpoint de subida de Cloudinary y campos firmados a enviar con el archivo.
+  url: string;
+  campos: Record<string, string>;
+}
+
+/**
+ * Pide la firma para subir una imagen pública a Cloudinary (foto de perfil o
+ * portada de un curso / producto de la profesional; `clave` = slug o pd1…).
+ * Edge Function: `firmar-imagen`
+ */
+export async function firmarImagen(destino: DestinoImagen, clave?: string): Promise<Result<FirmaImagenOutput>> {
+  return callEdgeFunction<FirmaImagenOutput>('firmar-imagen', { destino, clave });
+}
