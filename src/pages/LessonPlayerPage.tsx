@@ -1,11 +1,19 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft, Play, Check, ChevronLeft, ChevronRight, FileText, Headphones,
-  ClipboardList, Download, Lock, Menu, X,
+  ClipboardList, Download, Lock, Menu, X, BookOpen,
 } from 'lucide-react';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
-import { LECCION_ACTUAL, CONTENIDO_CLASE, MATERIALES_CLASE, TEMARIO } from '@/data/lessonPlayerData';
+import { useSiteAuth } from '@/context/SiteAuthContext';
+import {
+  LECCION_ACTUAL, CONTENIDO_CLASE, MATERIALES_CLASE, TEMARIO,
+  type ModuloTemario, type LeccionTemario,
+} from '@/data/lessonPlayerData';
+import {
+  cargarCursoEstudiante, completarClase, guardarNotaClase,
+  type CursoEstudianteDetalle, type ItemClase, type ItemCurso, type MotivoBloqueo,
+} from '@/lib/api/cursosEstudiante';
 
 const logo = '/src/assets/logos/1_(1).png';
 
@@ -14,63 +22,232 @@ type TabKey = 'contenido' | 'materiales' | 'notas';
 const text = {
   es: {
     back: 'Volver a mis cursos', contents: 'Temario',
-    markComplete: 'Marcar como completada', completed: 'Completada',
-    previous: 'Anterior', next: 'Siguiente clase',
+    markComplete: 'Marcar como completada', completed: 'Completada', saving: 'Guardando…',
+    previous: 'Anterior', next: 'Siguiente clase', goToQuiz: 'Ir a la evaluación',
     tabContenido: 'Contenido', tabMateriales: 'Materiales', tabNotas: 'Mis notas',
     keyPoints: 'Puntos clave', tip: 'Tip:',
     notesPlaceholder: 'Escribe tus notas de esta clase…', saveNote: 'Guardar nota', noteSaved: 'Nota guardada ✓',
     courseContent: 'Contenido del curso', modules: 'módulos', lessons: 'clases',
     close: 'Cerrar',
+    modulo: 'Módulo', clase: 'Clase',
+    loading: 'Cargando el curso…', chooseCourse: 'Elige un curso desde tu Aula Virtual para empezar.',
+    goToClassroom: 'Ir al Aula Virtual',
+    readingLesson: 'Clase de lectura', readingDetail: 'Esta clase no tiene video: revisa el contenido y los materiales.',
+    noContent: 'Esta clase aún no tiene contenido.', noMaterials: 'Esta clase no tiene materiales.',
+    firstLesson: 'Esta es la primera clase del curso.', lastLesson: '¡Llegaste a la última clase del curso!',
+    lockedSecuencial: 'Completa la clase anterior para desbloquearla.',
+    lockedEvaluacion: 'Aprueba la evaluación del módulo anterior para desbloquearla.',
+    lockedPago: 'Requiere tener el pago del curso al día.',
+    lockedClases: 'Completa las clases del módulo para habilitar la evaluación.',
+    avisoEvaluacion: 'Aprueba la evaluación anterior para desbloquear este módulo.',
   },
   en: {
     back: 'Back to my courses', contents: 'Contents',
-    markComplete: 'Mark as complete', completed: 'Completed',
-    previous: 'Previous', next: 'Next lesson',
+    markComplete: 'Mark as complete', completed: 'Completed', saving: 'Saving…',
+    previous: 'Previous', next: 'Next lesson', goToQuiz: 'Go to the quiz',
     tabContenido: 'Content', tabMateriales: 'Materials', tabNotas: 'My notes',
     keyPoints: 'Key points', tip: 'Tip:',
     notesPlaceholder: "Write your notes for this lesson…", saveNote: 'Save note', noteSaved: 'Note saved ✓',
     courseContent: 'Course content', modules: 'modules', lessons: 'lessons',
     close: 'Close',
+    modulo: 'Module', clase: 'Lesson',
+    loading: 'Loading the course…', chooseCourse: 'Choose a course from your Virtual Classroom to start.',
+    goToClassroom: 'Go to Virtual Classroom',
+    readingLesson: 'Reading lesson', readingDetail: 'This lesson has no video: check the content and materials.',
+    noContent: 'This lesson has no content yet.', noMaterials: 'This lesson has no materials.',
+    firstLesson: 'This is the first lesson of the course.', lastLesson: 'You reached the last lesson of the course!',
+    lockedSecuencial: 'Complete the previous lesson to unlock it.',
+    lockedEvaluacion: 'Pass the previous module quiz to unlock it.',
+    lockedPago: 'Requires the course payment to be up to date.',
+    lockedClases: 'Complete the module lessons to enable the quiz.',
+    avisoEvaluacion: 'Pass the previous quiz to unlock this module.',
   },
 } as const;
 
 const materialIcon = { pdf: FileText, audio: Headphones, doc: ClipboardList } as const;
 
+function iconoMaterial(tipo: string) {
+  return tipo === 'pdf' || tipo === 'audio' || tipo === 'doc' ? materialIcon[tipo] : FileText;
+}
+
+// URL de video → embed (YouTube/Vimeo) o archivo directo.
+function videoEmbed(url: string): { tipo: 'iframe' | 'video'; src: string } {
+  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{6,})/);
+  if (yt) return { tipo: 'iframe', src: `https://www.youtube-nocookie.com/embed/${yt[1]}` };
+  const vimeo = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  if (vimeo) return { tipo: 'iframe', src: `https://player.vimeo.com/video/${vimeo[1]}` };
+  return { tipo: 'video', src: url };
+}
+
 export default function LessonPlayerPage() {
   const { language, setLanguage } = useSiteLanguage();
+  const { esSesionReal } = useSiteAuth();
   const t = text[language];
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const slug = params.get('curso');
+  const claseParam = Number(params.get('clase')) || null;
 
   const [tab, setTab] = useState<TabKey>('contenido');
-  const [completada, setCompletada] = useState(false);
+  const [completadaDemo, setCompletadaDemo] = useState(false);
   const [nota, setNota] = useState('');
   const [notaGuardada, setNotaGuardada] = useState(false);
   const [temarioAbierto, setTemarioAbierto] = useState(false);
   const [leccionToast, setLeccionToast] = useState('');
 
-  function navLeccion(dir: 'anterior' | 'siguiente') {
-    const msg = dir === 'anterior'
-      ? (language === 'es' ? 'Esta es la primera lección de la demo.' : 'This is the first demo lesson.')
-      : (language === 'es' ? 'Esta es la última lección de la demo.' : 'This is the last demo lesson.');
+  // ── Datos reales (sesión real + ?curso=slug) ──
+  const real = esSesionReal;
+  const [detalle, setDetalle] = useState<CursoEstudianteDetalle | null>(null);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const recargar = useCallback(async () => {
+    if (!slug) return;
+    const res = await cargarCursoEstudiante(slug);
+    if (res.error) setErrorCarga(res.error.message);
+    else setDetalle(res.data);
+  }, [slug]);
+
+  useEffect(() => {
+    if (real && slug) void recargar();
+  }, [real, slug, recargar]);
+
+  function toast(msg: string) {
     setLeccionToast(msg);
-    window.setTimeout(() => setLeccionToast(''), 2500);
+    window.setTimeout(() => setLeccionToast(''), 2800);
   }
 
-  const totalLecciones = TEMARIO.reduce((acc, m) => acc + m.lecciones.length, 0);
+  function motivoTexto(m: MotivoBloqueo | null) {
+    return m === 'evaluacion' ? t.lockedEvaluacion : m === 'pago' ? t.lockedPago : m === 'clases' ? t.lockedClases : t.lockedSecuencial;
+  }
 
-  function guardarNota() {
+  // Secuencia completa (clases y evaluaciones) y clase actual.
+  const items: ItemCurso[] = useMemo(() => detalle?.modulos.flatMap((m) => m.items) ?? [], [detalle]);
+  const actual: ItemClase | null = useMemo(() => {
+    const clases = items.filter((i): i is ItemClase => i.tipo === 'clase');
+    return clases.find((c) => c.id === claseParam && !c.bloqueado)
+      ?? clases.find((c) => !c.completado && !c.bloqueado)
+      ?? clases.find((c) => !c.bloqueado)
+      ?? null;
+  }, [items, claseParam]);
+
+  // Al cambiar de clase: notas de esa clase y pestaña de contenido.
+  useEffect(() => {
+    if (!actual) return;
+    setNota(actual.nota);
+    setTab('contenido');
+  }, [actual?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function abrirItem(item: ItemCurso) {
+    if (item.bloqueado) return toast(motivoTexto(item.motivoBloqueo));
+    if (item.tipo === 'evaluacion') {
+      navigate(`/aula-virtual/evaluacion?curso=${slug}&evaluacion=${item.id}`);
+      return;
+    }
+    setParams({ curso: slug ?? '', clase: String(item.id) });
+    setTemarioAbierto(false);
+    window.scrollTo({ top: 0 });
+  }
+
+  function navLeccion(dir: 'anterior' | 'siguiente') {
+    if (!real) {
+      toast(dir === 'anterior'
+        ? (language === 'es' ? 'Esta es la primera lección de la demo.' : 'This is the first demo lesson.')
+        : (language === 'es' ? 'Esta es la última lección de la demo.' : 'This is the last demo lesson.'));
+      return;
+    }
+    if (!actual) return;
+    const idx = items.findIndex((i) => i.tipo === 'clase' && i.id === actual.id);
+    if (dir === 'anterior') {
+      const previa = items.slice(0, idx).reverse().find((i) => i.tipo === 'clase');
+      return previa ? abrirItem(previa) : toast(t.firstLesson);
+    }
+    // La siguiente puede ser una evaluación pendiente del módulo.
+    const siguiente = items[idx + 1];
+    return siguiente ? abrirItem(siguiente) : toast(t.lastLesson);
+  }
+
+  async function marcarCompletada() {
+    if (!real) return setCompletadaDemo(true);
+    if (!actual) return;
+    // Fija la clase en la URL: si no, al recargar se saltaría sola a la siguiente pendiente.
+    setParams({ curso: slug ?? '', clase: String(actual.id) }, { replace: true });
+    setGuardando(true);
+    const res = await completarClase(actual.id);
+    setGuardando(false);
+    if (res.error) return toast(res.error.message);
+    await recargar();
+  }
+
+  async function guardarNota() {
+    if (real && actual) {
+      const res = await guardarNotaClase(actual.id, nota);
+      if (res.error) return toast(res.error.message);
+    }
     setNotaGuardada(true);
     window.setTimeout(() => setNotaGuardada(false), 2000);
+  }
+
+  // ── Modelo de vista: demo o base ──
+  const temario: ModuloTemario[] = useMemo(() => {
+    if (!real) return TEMARIO;
+    return (detalle?.modulos ?? []).map((m) => {
+      const lecciones: LeccionTemario[] = m.items.map((i) => ({
+        id: i.id,
+        tipo: i.tipo,
+        titulo: { es: i.titulo, en: i.titulo },
+        duracion: i.tipo === 'clase' ? i.duracion || undefined : undefined,
+        estado: i.tipo === 'clase' && i.id === actual?.id ? 'actual'
+          : (i.tipo === 'clase' ? i.completado : i.aprobado) ? 'completada'
+          : i.bloqueado ? 'bloqueada' : 'pendiente',
+      }));
+      const todas = lecciones.every((l) => l.estado === 'completada');
+      const bloqueado = lecciones.every((l) => l.estado === 'bloqueada');
+      const porEvaluacion = m.items.some((i) => i.bloqueado && i.motivoBloqueo === 'evaluacion');
+      return {
+        titulo: { es: m.titulo, en: m.titulo },
+        estado: todas ? 'completado' : bloqueado ? 'bloqueado' : 'en-curso',
+        lecciones,
+        avisoDesbloqueo: porEvaluacion ? { es: text.es.avisoEvaluacion, en: text.en.avisoEvaluacion } : undefined,
+      } satisfies ModuloTemario;
+    });
+  }, [real, detalle, actual?.id]);
+
+  const progresoCurso = real ? detalle?.porcentaje ?? 0 : LECCION_ACTUAL.progresoCurso;
+  const cursoNombre = real ? detalle?.curso.nombre ?? '' : LECCION_ACTUAL.curso[language];
+  const moduloIdx = real && actual ? (detalle?.modulos.findIndex((m) => m.items.some((i) => i.tipo === 'clase' && i.id === actual.id)) ?? 0) + 1 : LECCION_ACTUAL.modulo;
+  const claseIdx = real && actual ? items.filter((i) => i.tipo === 'clase').findIndex((i) => i.id === actual.id) + 1 : LECCION_ACTUAL.claseNumero;
+  const completada = real ? !!actual?.completado : completadaDemo;
+  const totalLecciones = temario.reduce((acc, m) => acc + m.lecciones.length, 0);
+  const siguienteEsEvaluacion = real && actual
+    ? items[items.findIndex((i) => i.tipo === 'clase' && i.id === actual.id) + 1]?.tipo === 'evaluacion'
+    : false;
+
+  // Pantallas de estado (solo con datos reales).
+  if (real && (!slug || errorCarga || (detalle && !actual))) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-brand-50/40 p-6">
+        <div className="max-w-sm rounded-3xl border border-brand-100 bg-white p-6 text-center shadow-soft">
+          <BookOpen className="mx-auto mb-3 text-brand-500" size={28} />
+          <p className="mb-4 text-sm text-ink/70">{errorCarga ?? t.chooseCourse}</p>
+          <Link to="/aula-virtual" className="inline-block rounded-full bg-brand-gradient px-5 py-2.5 text-sm font-semibold text-white">{t.goToClassroom}</Link>
+        </div>
+      </div>
+    );
+  }
+  if (real && !detalle) {
+    return <div className="grid min-h-screen place-items-center bg-brand-50/40 text-sm text-ink/50">{t.loading}</div>;
   }
 
   const Temario = (
     <>
       <div className="mb-4">
         <h2 className="font-display text-lg font-semibold text-ink">{t.courseContent}</h2>
-        <p className="text-xs text-ink/45">{TEMARIO.length} {t.modules} · {totalLecciones} {t.lessons} · {LECCION_ACTUAL.progresoCurso}%</p>
+        <p className="text-xs text-ink/45">{temario.length} {t.modules} · {totalLecciones} {t.lessons} · {progresoCurso}%</p>
       </div>
       <div className="space-y-2">
-        {TEMARIO.map((modulo, i) => (
-          <details key={i} open={modulo.estado === 'en-curso'} className="rounded-2xl border border-brand-100 bg-white px-3 shadow-soft">
+        {temario.map((modulo, i) => (
+          <details key={i} open={modulo.estado === 'en-curso' || modulo.lecciones.some((l) => l.estado === 'actual')} className="rounded-2xl border border-brand-100 bg-white px-3 shadow-soft">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-2 py-3 text-sm font-medium text-ink">
               <span className="flex items-center gap-1.5">
                 {modulo.estado === 'completado' && <Check size={14} className="text-emerald-600" />}
@@ -82,20 +259,31 @@ export default function LessonPlayerPage() {
               </span>
             </summary>
             <div className="space-y-1 pb-3 pl-1">
-              {modulo.lecciones.map((leccion, j) => (
-                <div
-                  key={j}
-                  className={`flex items-center gap-2 rounded-xl px-2 py-2 text-xs ${
-                    leccion.estado === 'actual' ? 'bg-brand-50 font-semibold text-brand-700' : 'text-ink/55'
-                  }`}
-                >
-                  {leccion.estado === 'completada' && <Check size={13} className="shrink-0 text-emerald-600" />}
-                  {leccion.estado === 'actual' && <Play size={12} className="shrink-0 text-brand-600" />}
-                  {leccion.estado === 'bloqueada' && <Lock size={12} className="shrink-0 text-ink/30" />}
-                  <span className="flex-1 truncate">{leccion.titulo[language]}</span>
-                  {leccion.duracion && <span className="shrink-0 text-ink/40">{leccion.duracion}</span>}
-                </div>
-              ))}
+              {modulo.lecciones.map((leccion, j) => {
+                const item = real ? items.find((it) => it.id === leccion.id && it.tipo === leccion.tipo) : undefined;
+                return (
+                  <div
+                    key={j}
+                    role={item ? 'button' : undefined}
+                    tabIndex={item ? 0 : undefined}
+                    onClick={item ? () => abrirItem(item) : undefined}
+                    onKeyDown={item ? (e) => { if (e.key === 'Enter') abrirItem(item); } : undefined}
+                    title={item?.bloqueado ? motivoTexto(item.motivoBloqueo) : undefined}
+                    className={`flex items-center gap-2 rounded-xl px-2 py-2 text-xs ${
+                      leccion.estado === 'actual' ? 'bg-brand-50 font-semibold text-brand-700' : 'text-ink/55'
+                    } ${item && !item.bloqueado && leccion.estado !== 'actual' ? 'cursor-pointer hover:bg-brand-50/60' : ''}`}
+                  >
+                    {leccion.estado === 'completada' && <Check size={13} className="shrink-0 text-emerald-600" />}
+                    {leccion.estado === 'actual' && <Play size={12} className="shrink-0 text-brand-600" />}
+                    {leccion.estado === 'bloqueada' && <Lock size={12} className="shrink-0 text-ink/30" />}
+                    {leccion.estado === 'pendiente' && (leccion.tipo === 'evaluacion'
+                      ? <ClipboardList size={12} className="shrink-0 text-brand-500" />
+                      : <span className="h-3 w-3 shrink-0 rounded-full border border-brand-300" />)}
+                    <span className="flex-1 truncate">{leccion.titulo[language]}</span>
+                    {leccion.duracion && <span className="shrink-0 text-ink/40">{leccion.duracion}</span>}
+                  </div>
+                );
+              })}
             </div>
             {modulo.avisoDesbloqueo && (
               <p className="mb-3 rounded-lg bg-amber-50 px-2 py-1.5 text-[11px] text-amber-700">{modulo.avisoDesbloqueo[language]}</p>
@@ -105,6 +293,9 @@ export default function LessonPlayerPage() {
       </div>
     </>
   );
+
+  const video = real && actual?.video ? videoEmbed(actual.video) : null;
+  const imagenCurso = real ? detalle?.curso.imagen || LECCION_ACTUAL.thumbnail : LECCION_ACTUAL.thumbnail;
 
   return (
     <div className="min-h-screen bg-brand-50/40">
@@ -118,17 +309,15 @@ export default function LessonPlayerPage() {
             <img src={logo} alt="Psique Amor" className="h-7 w-auto" />
           </Link>
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-ink">{LECCION_ACTUAL.curso[language]}</p>
-            <p className="truncate text-xs text-ink/45">
-              {language === 'es' ? `Módulo ${LECCION_ACTUAL.modulo} · Clase ${LECCION_ACTUAL.claseNumero}` : `Module ${LECCION_ACTUAL.modulo} · Lesson ${LECCION_ACTUAL.claseNumero}`}
-            </p>
+            <p className="truncate text-sm font-medium text-ink">{cursoNombre}</p>
+            <p className="truncate text-xs text-ink/45">{t.modulo} {moduloIdx} · {t.clase} {claseIdx}</p>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-3">
             <div className="hidden items-center gap-2 text-xs text-ink/45 sm:flex">
               <div className="h-1.5 w-24 rounded-full bg-brand-100">
-                <div className="h-1.5 rounded-full bg-brand-gradient" style={{ width: `${LECCION_ACTUAL.progresoCurso}%` }} />
+                <div className="h-1.5 rounded-full bg-brand-gradient" style={{ width: `${progresoCurso}%` }} />
               </div>
-              {LECCION_ACTUAL.progresoCurso}%
+              {progresoCurso}%
             </div>
             <div className="flex items-center rounded-full border border-brand-100 overflow-hidden text-xs font-bold">
               <button onClick={() => setLanguage('es')} className={`px-2.5 py-1.5 ${language === 'es' ? 'bg-brand-gradient text-white' : 'text-ink/45'}`}>ES</button>
@@ -149,36 +338,62 @@ export default function LessonPlayerPage() {
         <main className="min-w-0 flex-1 p-4 sm:p-6">
           {/* Video */}
           <div className="relative aspect-video overflow-hidden rounded-2xl border border-brand-100 bg-ink shadow-soft">
-            <img src={LECCION_ACTUAL.thumbnail} alt={LECCION_ACTUAL.titulo[language]} className="absolute inset-0 h-full w-full object-cover opacity-70" />
-            <button className="absolute inset-0 grid place-items-center" aria-label="Play">
-              <span className="grid h-20 w-20 place-items-center rounded-full bg-white/95 text-brand-700 shadow-2xl transition hover:scale-105">
-                <Play size={32} className="ml-1" fill="currentColor" />
-              </span>
-            </button>
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3">
-              <div className="mb-2 h-1 rounded-full bg-white/25"><div className="h-1 w-1/3 rounded-full bg-white" /></div>
-              <div className="flex items-center justify-between text-xs text-white">
-                <span>04:12 / {LECCION_ACTUAL.duracion}</span>
-                <span>1.0x</span>
-              </div>
-            </div>
+            {video?.tipo === 'iframe' && (
+              <iframe src={video.src} title={actual?.titulo} className="absolute inset-0 h-full w-full" allow="fullscreen; picture-in-picture" allowFullScreen />
+            )}
+            {video?.tipo === 'video' && (
+              <video src={video.src} controls className="absolute inset-0 h-full w-full bg-black" />
+            )}
+            {real && !video && (
+              <>
+                <img src={imagenCurso} alt="" className="absolute inset-0 h-full w-full object-cover opacity-40" />
+                <div className="absolute inset-0 grid place-items-center p-6 text-center text-white">
+                  <div>
+                    <BookOpen size={36} className="mx-auto mb-2" />
+                    <p className="font-display text-lg font-semibold">{t.readingLesson}</p>
+                    <p className="text-sm text-white/80">{t.readingDetail}</p>
+                  </div>
+                </div>
+              </>
+            )}
+            {!real && (
+              <>
+                <img src={LECCION_ACTUAL.thumbnail} alt={LECCION_ACTUAL.titulo[language]} className="absolute inset-0 h-full w-full object-cover opacity-70" />
+                <button className="absolute inset-0 grid place-items-center" aria-label="Play">
+                  <span className="grid h-20 w-20 place-items-center rounded-full bg-white/95 text-brand-700 shadow-2xl transition hover:scale-105">
+                    <Play size={32} className="ml-1" fill="currentColor" />
+                  </span>
+                </button>
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3">
+                  <div className="mb-2 h-1 rounded-full bg-white/25"><div className="h-1 w-1/3 rounded-full bg-white" /></div>
+                  <div className="flex items-center justify-between text-xs text-white">
+                    <span>04:12 / {LECCION_ACTUAL.duracion}</span>
+                    <span>1.0x</span>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Título + acción */}
           <div className="mt-5 flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h1 className="font-display text-2xl font-semibold text-ink">{LECCION_ACTUAL.titulo[language]}</h1>
-              <p className="text-sm text-ink/50">{LECCION_ACTUAL.instructor} · {LECCION_ACTUAL.duracion} min</p>
+              <h1 className="font-display text-2xl font-semibold text-ink">{real ? actual?.titulo : LECCION_ACTUAL.titulo[language]}</h1>
+              <p className="text-sm text-ink/50">
+                {real
+                  ? [detalle?.curso.profesional, actual?.duracion && `${actual.duracion} min`].filter(Boolean).join(' · ')
+                  : `${LECCION_ACTUAL.instructor} · ${LECCION_ACTUAL.duracion} min`}
+              </p>
             </div>
             <button
-              onClick={() => setCompletada(true)}
-              disabled={completada}
+              onClick={() => void marcarCompletada()}
+              disabled={completada || guardando}
               className={`inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold shadow-soft transition ${
-                completada ? 'border border-emerald-300 bg-emerald-50 text-emerald-700' : 'bg-brand-gradient text-white hover:opacity-90'
+                completada ? 'border border-emerald-300 bg-emerald-50 text-emerald-700' : 'bg-brand-gradient text-white hover:opacity-90 disabled:opacity-60'
               }`}
             >
               <Check size={16} />
-              {completada ? t.completed : t.markComplete}
+              {completada ? t.completed : guardando ? t.saving : t.markComplete}
             </button>
           </div>
 
@@ -188,10 +403,10 @@ export default function LessonPlayerPage() {
               <ChevronLeft size={16} /> {t.previous}
             </button>
             {leccionToast && (
-              <span className="rounded-xl bg-ink/80 px-3 py-1.5 text-xs font-semibold text-white">{leccionToast}</span>
+              <span className="rounded-xl bg-ink/80 px-3 py-1.5 text-center text-xs font-semibold text-white">{leccionToast}</span>
             )}
             <button onClick={() => navLeccion('siguiente')} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-brand-200 px-5 py-2.5 text-sm font-semibold text-ink/70 hover:bg-brand-50 sm:flex-none">
-              {t.next} <ChevronRight size={16} />
+              {siguienteEsEvaluacion ? t.goToQuiz : t.next} <ChevronRight size={16} />
             </button>
           </div>
 
@@ -210,7 +425,12 @@ export default function LessonPlayerPage() {
             ))}
           </div>
 
-          {tab === 'contenido' && (
+          {tab === 'contenido' && real && (
+            <div className="mt-5 whitespace-pre-line leading-relaxed text-ink/70">
+              {actual?.contenido?.trim() ? actual.contenido : <span className="text-ink/45">{t.noContent}</span>}
+            </div>
+          )}
+          {tab === 'contenido' && !real && (
             <div className="mt-5 space-y-4 leading-relaxed text-ink/70">
               <p>{CONTENIDO_CLASE.intro[language]}</p>
               <h3 className="font-display font-semibold text-ink">{t.keyPoints}</h3>
@@ -227,18 +447,23 @@ export default function LessonPlayerPage() {
 
           {tab === 'materiales' && (
             <div className="mt-5 space-y-3">
-              {MATERIALES_CLASE.map((m, i) => {
-                const Icon = materialIcon[m.tipo];
+              {real && !actual?.materiales.length && <p className="text-sm text-ink/45">{t.noMaterials}</p>}
+              {(real
+                ? (actual?.materiales ?? []).map((m) => ({ tipo: m.tipo, titulo: m.nombre, detalle: m.tamano ?? '' }))
+                : MATERIALES_CLASE.map((m) => ({ tipo: m.tipo as string, titulo: m.titulo[language], detalle: m.detalle }))
+              ).map((m, i) => {
+                const Icon = iconoMaterial(m.tipo);
                 return (
                   <div key={i} className="flex items-center gap-3 rounded-2xl border border-brand-100 bg-white p-4 shadow-soft">
                     <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600">
                       <Icon size={18} />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-ink">{m.titulo[language]}</p>
+                      <p className="truncate text-sm font-medium text-ink">{m.titulo}</p>
                       <p className="text-xs text-ink/45">{m.detalle}</p>
                     </div>
-                    <Download size={16} className="shrink-0 text-brand-600" />
+                    {/* Los materiales reales aún no tienen archivo asociado. */}
+                    {!real && <Download size={16} className="shrink-0 text-brand-600" />}
                   </div>
                 );
               })}
@@ -250,12 +475,13 @@ export default function LessonPlayerPage() {
               <textarea
                 rows={6}
                 value={nota}
+                maxLength={5000}
                 onChange={(e) => setNota(e.target.value)}
                 placeholder={t.notesPlaceholder}
                 className="focus-ring w-full rounded-2xl border border-brand-200 p-4 text-sm text-ink"
               />
               <div className="mt-3 flex items-center gap-3">
-                <button onClick={guardarNota} className="rounded-full bg-brand-gradient px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90">
+                <button onClick={() => void guardarNota()} className="rounded-full bg-brand-gradient px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90">
                   {t.saveNote}
                 </button>
                 {notaGuardada && <span className="text-sm font-semibold text-emerald-600">{t.noteSaved}</span>}

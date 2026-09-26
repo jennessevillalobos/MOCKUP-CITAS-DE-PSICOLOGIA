@@ -26,6 +26,7 @@ export interface CursoEstudiante {
   totalClases: number;
   completadas: number;
   porcentaje: number;
+  ultimaActividad: string | null;
 }
 
 function notConfigured<T>(): Result<T> {
@@ -71,6 +72,16 @@ export async function reportarPagoCurso(cursoId: number, montoUsd: number, refer
   return ok(data as string);
 }
 
+// Momentos de actividad de los últimos 90 días (para la racha).
+export async function cargarActividadReciente(): Promise<Result<string[]>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+
+  const { data, error } = await supabase.rpc('mi_actividad_reciente');
+  if (error) return fail(toServiceError(error));
+  return ok((data ?? []) as string[]);
+}
+
 export async function cargarMisCursos(): Promise<Result<CursoEstudiante[]>> {
   const supabase = getSupabaseClient();
   if (!supabase || !isSupabaseConfigured()) return notConfigured();
@@ -78,4 +89,86 @@ export async function cargarMisCursos(): Promise<Result<CursoEstudiante[]>> {
   const { data, error } = await supabase.rpc('mis_cursos_estudiante');
   if (error) return fail(toServiceError(error));
   return ok((data ?? []) as CursoEstudiante[]);
+}
+
+// ── Reproductor de clases (migración 029) ──
+
+export type MotivoBloqueo = 'secuencial' | 'evaluacion' | 'pago' | 'clases';
+
+export interface MaterialClaseBase {
+  tipo: string;
+  nombre: string;
+  tamano?: string;
+}
+
+export interface ItemClase {
+  tipo: 'clase';
+  id: number;
+  titulo: string;
+  duracion: string;
+  completado: boolean;
+  bloqueado: boolean;
+  motivoBloqueo: MotivoBloqueo | null;
+  // null si la clase está bloqueada (el servidor no envía el contenido).
+  contenido: string | null;
+  video: string | null;
+  materiales: MaterialClaseBase[];
+  nota: string;
+}
+
+export interface ItemEvaluacion {
+  tipo: 'evaluacion';
+  id: number;
+  titulo: string;
+  preguntas: number;
+  notaMinima: number | null;
+  intentosMax: number | null;
+  intentosUsados: number;
+  aprobado: boolean;
+  mejorNota: number | null;
+  bloqueado: boolean;
+  motivoBloqueo: MotivoBloqueo | null;
+}
+
+export type ItemCurso = ItemClase | ItemEvaluacion;
+
+export interface CursoEstudianteDetalle {
+  curso: { id: number; slug: string; nombre: string; imagen: string | null; profesional: string | null };
+  modulos: { id: number; titulo: string; items: ItemCurso[] }[];
+  totalClases: number;
+  completadas: number;
+  porcentaje: number;
+}
+
+export async function cargarCursoEstudiante(slug: string): Promise<Result<CursoEstudianteDetalle>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+
+  const { data, error } = await supabase.rpc('curso_estudiante', { p_slug: slug });
+  if (error) return fail(toServiceError(error));
+  return ok(data as CursoEstudianteDetalle);
+}
+
+export async function completarClase(claseId: number): Promise<Result<null>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+
+  const { error } = await supabase.rpc('completar_clase', { p_clase_id: claseId });
+  if (error) return fail(toServiceError(error));
+  return ok(null);
+}
+
+export async function guardarNotaClase(claseId: number, texto: string): Promise<Result<null>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+
+  const { data: sesion } = await supabase.auth.getSession();
+  const userId = sesion.session?.user.id;
+  if (!userId) return fail({ code: 'no_session', message: 'Tu sesión expiró. Vuelve a iniciar sesión.' });
+
+  const { error } = await supabase
+    .from('notas_clase')
+    .upsert({ usuario_id: userId, clase_id: claseId, texto, actualizado_en: new Date().toISOString() });
+  if (error) return fail(toServiceError(error));
+  return ok(null);
 }

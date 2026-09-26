@@ -5,9 +5,8 @@ import PortalLayout from '@/components/site/PortalLayout';
 import { AULA_NAV_LABELS, buildAulaVirtualNav } from '@/components/site/aulaVirtualNav';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
-import { CURSOS_INSCRITOS, CLASES_EN_VIVO_AULA, CUOTA_PENDIENTE, NOTIFICACIONES_AULA, type CursoInscrito } from '@/data/aulaVirtualData';
-import { CURSOS_PUBLICOS } from '@/data/coursesPageData';
-import { cargarMisCursos } from '@/lib/api/cursosEstudiante';
+import { CLASES_EN_VIVO_AULA, CUOTA_PENDIENTE, NOTIFICACIONES_AULA } from '@/data/aulaVirtualData';
+import { useMisCursosAula } from '@/hooks/useMisCursosAula';
 import { cargarNotificaciones } from '@/lib/api/notificaciones';
 import type { NotificacionInstructor } from '@/data/notificacionesInstructorData';
 
@@ -52,27 +51,15 @@ export default function AulaVirtualPage() {
   // Con sesión real: cursos inscritos y notificaciones de la base. Las clases
   // en vivo y las cuotas del panel se conectan en P5; mientras tanto no se
   // muestran datos de demostración a una cuenta real.
-  const [cursosReales, setCursosReales] = useState<CursoInscrito[] | null>(null);
+  const { cursos: cursosCargados } = useMisCursosAula();
   const [notifReales, setNotifReales] = useState<NotificacionInstructor[]>([]);
   useEffect(() => {
     if (!esSesionReal) return;
-    void cargarMisCursos().then((res) => {
-      if (res.error) return setCursosReales([]);
-      setCursosReales(res.data.map((c) => ({
-        key: c.slug,
-        title: { es: c.nombre, en: CURSOS_PUBLICOS.find((p) => p.key === c.slug)?.title.en ?? c.nombre },
-        instructor: c.profesional ?? '',
-        leccionActual: c.completadas,
-        totalLecciones: c.totalClases,
-        progreso: c.porcentaje,
-        completado: c.totalClases > 0 && c.porcentaje >= 100,
-        image: c.imagen || CURSOS_PUBLICOS.find((p) => p.key === c.slug)?.image || '',
-      })));
-    });
     void cargarNotificaciones().then((res) => { if (!res.error) setNotifReales(res.data.slice(0, 4)); });
   }, [esSesionReal]);
 
-  const cursos = esSesionReal ? cursosReales ?? [] : CURSOS_INSCRITOS;
+  const cursosReales = esSesionReal ? cursosCargados : null;
+  const cursos = cursosCargados ?? [];
 
   const navItems = buildAulaVirtualNav(AULA_NAV_LABELS[language], ['dash']);
 

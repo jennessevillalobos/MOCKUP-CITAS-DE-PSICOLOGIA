@@ -47,12 +47,16 @@ export const MATERIALES_CLASE: MaterialClase[] = [
   { tipo: 'doc', titulo: { es: 'Hoja de práctica semanal', en: 'Weekly practice sheet' }, detalle: '340 KB' },
 ];
 
-export type EstadoLeccion = 'completada' | 'actual' | 'bloqueada';
+// 'pendiente' = abierta pero sin completar (solo con datos reales).
+export type EstadoLeccion = 'completada' | 'actual' | 'bloqueada' | 'pendiente';
 
 export interface LeccionTemario {
   titulo: { es: string; en: string };
   estado: EstadoLeccion;
   duracion?: string;
+  // Con datos reales: para abrir la clase o la evaluación desde el temario.
+  id?: number;
+  tipo?: 'clase' | 'evaluacion';
 }
 
 export interface ModuloTemario {
