@@ -88,7 +88,7 @@ export default function AdminDashboardPage() {
           clave: c.id, hora: `${String(((h + 11) % 12) + 1).padStart(2, '0')}:${c.hora.slice(3, 5)}`, turno: h < 12 ? 'AM' : 'PM',
           paciente: c.paciente ?? '—', iniciales: iniciales(c.paciente),
           detalle: `${c.servicio ?? 'Cita'} · ${c.profesional ?? ''} · ${fechaCorta(c.fecha)}`,
-          estado: /online/i.test(c.lugar ?? '') ? 'En línea' : c.lugar ?? '—',
+          estado: /online|virtual/i.test(c.lugar ?? '') ? 'En línea' : c.lugar ?? '—',
         };
       })
     : upcomingAppointments.map((c) => ({ ...c, clave: c.paciente }));
@@ -185,7 +185,7 @@ export default function AdminDashboardPage() {
       </div>
 
       {errorPanel && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorPanel}</p>}
-      {aviso && <p role="status" className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{aviso}</p>}
+      {aviso && <p role="status" className="fixed bottom-6 right-6 z-50 max-w-sm rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white shadow-lg">{aviso}</p>}
 
       {/* KPIs */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -197,7 +197,7 @@ export default function AdminDashboardPage() {
                   kpi.positivo ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
                 }`}
               >
-                {kpi.positivo ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+                {kpi.delta !== '—' && (kpi.positivo ? <TrendingUp size={13} /> : <TrendingDown size={13} />)}
                 {kpi.delta}
               </span>
             </div>
