@@ -5,6 +5,20 @@ import StatusBadge from '@/components/admin/ui/StatusBadge';
 import { useAdminLanguage } from '@/context/AdminLanguageContext';
 import { demoClasesEnVivo, ESTUDIANTES_DISPONIBLES, type ClaseEnVivoRecord, type ClaseEstado, type Destinatario } from '@/data/admin/liveClassesData';
 import { demoCursos } from '@/data/admin/coursesData';
+import AdminModal from '@/components/admin/ui/AdminModal';
+import AvisoFlotante from '@/components/admin/ui/AvisoFlotante';
+import { useDialogo } from '@/context/DialogoContext';
+import { useAcademiaAdmin } from '@/hooks/useAcademiaAdmin';
+import { actualizarClaseVivoAdmin } from '@/lib/api/admin';
+
+// Con Supabase: clase de la base → tarjeta (las canceladas llevan etiqueta propia).
+type RegistroClase = ClaseEnVivoRecord & { real?: boolean; cancelada?: boolean; curso?: string | null };
+const ESTADO_CLASE: Record<string, ClaseEstado> = { programada: 'Programada', vivo: 'En vivo', finalizada: 'Finalizada', cancelada: 'Borrador' };
+
+function hoyISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 type FiltroEstado = 'todas' | ClaseEstado;
 
@@ -45,7 +59,47 @@ function estadoTone(e: ClaseEstado) {
 export default function AdminLiveClassesPage() {
   const { lang } = useAdminLanguage();
   const t = text[lang];
-  const [clases, setClases] = useState<ClaseEnVivoRecord[]>(demoClasesEnVivo);
+  const { esReal, datos, error: errorCarga, recargar, aviso, mostrarAviso } = useAcademiaAdmin();
+  const { confirmar } = useDialogo();
+  const [clasesDemo, setClases] = useState<ClaseEnVivoRecord[]>(demoClasesEnVivo);
+  const clases: RegistroClase[] = esReal
+    ? (datos?.clasesVivo ?? []).map((c) => ({
+        id: String(c.id), titulo: c.titulo, instructor: c.profesional ?? '—', fechaISO: c.fecha, hora: c.hora, duracionMin: c.duracion,
+        enlace: c.enlace ?? '', destinatarios: c.destinatario === 'curso' ? 'Curso' : 'Específicos', estudiantesEspecificos: [],
+        grabarSesion: c.grabar, recordatorio: c.recordatorio, estado: ESTADO_CLASE[c.estado] ?? 'Programada',
+        grabacionUrl: c.grabacion ?? undefined, inscritos: c.inscritos, real: true, cancelada: c.estado === 'cancelada', curso: c.curso,
+      }))
+    : clasesDemo;
+  const [editando, setEditando] = useState<{ id: string; titulo: string; fecha: string; hora: string; duracion: number; enlace: string } | null>(null);
+  const [procesando, setProcesando] = useState(false);
+
+  async function guardarEdicion() {
+    if (!editando) return;
+    if (!editando.titulo.trim()) return mostrarAviso('El título no puede quedar vacío.', true);
+    setProcesando(true);
+    const res = await actualizarClaseVivoAdmin(Number(editando.id), {
+      titulo: editando.titulo, fecha: editando.fecha, hora: editando.hora, duracion: editando.duracion, enlace: editando.enlace,
+    });
+    setProcesando(false);
+    if (res.error) return mostrarAviso(res.error.message, true);
+    setEditando(null);
+    mostrarAviso('Clase actualizada.');
+    return recargar();
+  }
+
+  async function cancelarClase(c: RegistroClase) {
+    const ok = await confirmar(
+      `¿Cancelar la clase "${c.titulo}" del ${c.fechaISO}? La profesional y quienes pidieron recordatorio recibirán un aviso.`,
+      { peligro: true, textoAceptar: 'Cancelar clase' }
+    );
+    if (!ok) return;
+    setProcesando(true);
+    const res = await actualizarClaseVivoAdmin(Number(c.id), { cancelar: true });
+    setProcesando(false);
+    if (res.error) return mostrarAviso(res.error.message, true);
+    mostrarAviso('Clase cancelada.');
+    return recargar();
+  }
   const [filtro, setFiltro] = useState<FiltroEstado>('todas');
   const [copiado, setCopiado] = useState<string | null>(null);
 
@@ -66,7 +120,7 @@ export default function AdminLiveClassesPage() {
   }
 
   function agregarClase(estado: ClaseEstado) {
-    if (!form.titulo.trim()) return;
+    if (!form.titulo.trim()) return mostrarAviso(lang === 'es' ? 'Escribe el título de la clase.' : 'Enter the class title.', true);
     const nueva: ClaseEnVivoRecord = {
       id: `lv${Date.now()}`, titulo: form.titulo, cursoId: form.cursoId || undefined, instructor: form.instructor,
       fechaISO: form.fechaISO, hora: form.hora, duracionMin: form.duracionMin, enlace: form.enlace,
@@ -78,9 +132,14 @@ export default function AdminLiveClassesPage() {
   }
 
   function copiarEnlace(id: string, enlace: string) {
+    if (esReal && !enlace) return mostrarAviso('Esta clase aún no tiene enlace.', true);
+    try {
+      void navigator.clipboard?.writeText(enlace);
+    } catch {
+      // sin portapapeles: solo se muestra el aviso
+    }
     setCopiado(id);
     setTimeout(() => setCopiado(null), 1500);
-    void enlace;
   }
 
   const filtradas = useMemo(() => {
@@ -95,12 +154,35 @@ export default function AdminLiveClassesPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
-          <p className="mt-1 text-sm text-ink/50">{t.subtitle}</p>
+          <p className="mt-1 text-sm text-ink/50">{esReal ? (lang === 'es' ? 'Programación y transmisión · datos reales' : 'Scheduling and streaming · live data') : t.subtitle}</p>
         </div>
       </div>
+      {errorCarga && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCarga}</p>}
+      <AvisoFlotante aviso={aviso} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[380px_1fr]">
-        {/* Formulario */}
+        {esReal ? (
+          <section className="h-fit space-y-3 rounded-3xl border border-brand-100 bg-white p-5 text-sm text-ink/60 shadow-soft">
+            <p className="flex items-center gap-2 font-bold text-ink">
+              <Radio size={16} className="text-brand-500" />
+              Clases de todas las profesionales
+            </p>
+            <p className="text-xs leading-relaxed">
+              Cada profesional programa sus clases desde su panel (para un curso o para pacientes invitados). Desde aquí puedes corregir título,
+              fecha, hora, duración y enlace de una clase programada, o cancelarla.
+            </p>
+            <div className="grid grid-cols-2 gap-2 text-center text-xs">
+              <div className="rounded-2xl bg-brand-50/60 p-3">
+                <p className="font-display text-xl font-semibold text-ink">{clases.filter((c) => c.estado === 'Programada' && !c.cancelada).length}</p>
+                Programadas
+              </div>
+              <div className="rounded-2xl bg-brand-50/60 p-3">
+                <p className="font-display text-xl font-semibold text-ink">{clases.filter((c) => c.estado === 'Finalizada').length}</p>
+                Finalizadas
+              </div>
+            </div>
+          </section>
+        ) : (
         <section className="h-fit space-y-4 rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
           <p className="flex items-center gap-2 text-sm font-bold text-ink">
             <Radio size={16} className="text-brand-500" />
@@ -206,6 +288,7 @@ export default function AdminLiveClassesPage() {
             <button onClick={() => agregarClase('Programada')} className="flex-1 rounded-xl bg-brand-gradient py-2.5 text-xs font-bold text-white shadow-soft">{t.schedule}</button>
           </div>
         </section>
+        )}
 
         {/* Lista */}
         <section className="space-y-3">
@@ -235,10 +318,12 @@ export default function AdminLiveClassesPage() {
                     <p className="mt-0.5 text-xs text-ink/50">{c.instructor} · {c.fechaISO} · {c.hora} · {c.duracionMin} min</p>
                     <p className="mt-1 flex items-center gap-1 text-[11px] text-ink/40">
                       <Users size={12} />
-                      {c.inscritos} {t.enrolled} · {c.destinatarios}
+                      {c.real
+                        ? `${c.inscritos} ${c.destinatarios === 'Curso' ? `${t.enrolled} · ${c.curso ?? 'Curso'}` : 'invitados'}`
+                        : `${c.inscritos} ${t.enrolled} · ${c.destinatarios}`}
                     </p>
                   </div>
-                  <StatusBadge tone={estadoTone(c.estado)}>{t.estados[c.estado]}</StatusBadge>
+                  {c.cancelada ? <StatusBadge tone="negativo">Cancelada</StatusBadge> : <StatusBadge tone={estadoTone(c.estado)}>{t.estados[c.estado]}</StatusBadge>}
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2 border-t border-brand-50 pt-3">
@@ -248,13 +333,31 @@ export default function AdminLiveClassesPage() {
                       {t.joinNow}
                     </a>
                   )}
-                  {(c.estado === 'Programada' || c.estado === 'Borrador') && (
+                  {(c.estado === 'Programada' || c.estado === 'Borrador') && !c.cancelada && (
                     <>
                       <button onClick={() => copiarEnlace(c.id, c.enlace)} className="flex items-center gap-1.5 rounded-xl border border-brand-200 px-3 py-1.5 text-xs font-bold text-brand-700 hover:bg-brand-50">
                         <Copy size={13} />
                         {copiado === c.id ? t.copied : t.copyLink}
                       </button>
-                      <button className="rounded-xl border border-brand-100 px-3 py-1.5 text-xs font-semibold text-ink/60 hover:bg-brand-50">{t.edit}</button>
+                      {c.real ? (
+                        <>
+                          <button
+                            onClick={() => setEditando({ id: c.id, titulo: c.titulo, fecha: c.fechaISO, hora: c.hora, duracion: c.duracionMin, enlace: c.enlace })}
+                            className="rounded-xl border border-brand-100 px-3 py-1.5 text-xs font-semibold text-ink/60 hover:bg-brand-50"
+                          >
+                            {t.edit}
+                          </button>
+                          <button
+                            disabled={procesando}
+                            onClick={() => void cancelarClase(c)}
+                            className="rounded-xl border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                          >
+                            Cancelar clase
+                          </button>
+                        </>
+                      ) : (
+                        <span className="self-center text-[11px] text-ink/35">{t.edit}: demostración</span>
+                      )}
                     </>
                   )}
                   {c.estado === 'Finalizada' && c.grabacionUrl && (
@@ -270,6 +373,43 @@ export default function AdminLiveClassesPage() {
           </div>
         </section>
       </div>
+
+      {editando && (
+        <AdminModal title={t.edit} onClose={() => setEditando(null)}>
+          <div className="space-y-3 text-sm">
+            <div>
+              <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">{t.classTitle}</label>
+              <input value={editando.titulo} onChange={(e) => setEditando({ ...editando, titulo: e.target.value })} className="h-10 w-full rounded-xl border border-brand-200 px-3 text-sm text-ink outline-none" />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">{t.date}</label>
+                <input type="date" min={hoyISO()} value={editando.fecha} onChange={(e) => setEditando({ ...editando, fecha: e.target.value })} className="h-10 w-full rounded-xl border border-brand-200 px-2 text-xs text-ink outline-none" />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">{t.time}</label>
+                <input type="time" value={editando.hora} onChange={(e) => setEditando({ ...editando, hora: e.target.value })} className="h-10 w-full rounded-xl border border-brand-200 px-2 text-xs text-ink outline-none" />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">{t.duration}</label>
+                <input type="number" min={5} value={editando.duracion} onChange={(e) => setEditando({ ...editando, duracion: Number(e.target.value) })} className="h-10 w-full rounded-xl border border-brand-200 px-2 text-xs text-ink outline-none" />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">{t.link}</label>
+              <input value={editando.enlace} onChange={(e) => setEditando({ ...editando, enlace: e.target.value })} placeholder="https://" className="h-10 w-full rounded-xl border border-brand-200 px-3 text-xs text-ink outline-none" />
+            </div>
+            <div className="flex gap-2 border-t border-brand-100 pt-3">
+              <button onClick={() => setEditando(null)} className="flex-1 rounded-xl border border-brand-100 py-2.5 text-sm font-bold text-ink/60 hover:bg-brand-50">
+                {lang === 'es' ? 'Cerrar' : 'Close'}
+              </button>
+              <button onClick={() => void guardarEdicion()} disabled={procesando} className="flex-1 rounded-xl bg-brand-gradient py-2.5 text-sm font-bold text-white shadow-soft disabled:opacity-60">
+                {lang === 'es' ? 'Guardar' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </AdminModal>
+      )}
     </AdminLayout>
   );
 }

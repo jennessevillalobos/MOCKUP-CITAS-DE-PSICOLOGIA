@@ -317,3 +317,82 @@ export function crearCitaAdmin(datos: {
     p_hora: datos.hora,
   });
 }
+
+// ── Academia: cursos, evaluaciones, clases en vivo y productos (migración 044) ──
+
+export interface AcademiaAdmin {
+  profesionales: { id: number; nombre: string }[];
+  cursos: {
+    id: number; nombre: string; slug: string; descripcion: string | null; categoria: string | null;
+    precio: number; moneda: string; estado: 'borrador' | 'publicado' | 'archivado';
+    profesional: string | null; profesionalId: number | null; inscritos: number; modulos: number; clases: number;
+    reglas: Record<string, number> | null;
+  }[];
+  inscripciones: {
+    id: number; cursoId: number; curso: string; estudiante: string | null; correo: string | null;
+    fecha: string; estado: 'activa' | 'suspendida' | 'finalizada'; progreso: number;
+  }[];
+  evaluaciones: {
+    id: number; titulo: string; tipo: string; curso: string; cursoEstado: string; modulo: string | null; profesional: string | null;
+    intentosMax: number; notaMinima: number; preguntas: number; intentos: number; evaluados: number; aprobados: number; intentosMes: number;
+  }[];
+  pendientes: { id: number; estudiante: string | null; curso: string; evaluacion: string; profesional: string | null; fecha: string }[];
+  clasesVivo: {
+    id: number; titulo: string; curso: string | null; profesional: string | null; fecha: string; hora: string; duracion: number;
+    enlace: string | null; destinatario: 'curso' | 'pacientes'; invitados: number; inscritos: number;
+    grabar: boolean; recordatorio: boolean; estado: 'programada' | 'vivo' | 'finalizada' | 'cancelada';
+    grabacion: string | null; asistieron: number | null;
+  }[];
+  productos: {
+    id: number; clave: string; titulo: string; tipo: 'video' | 'libro_pdf'; categoria: string | null; precio: number; moneda: string;
+    estado: 'activo' | 'inactivo'; descripcion: string | null; profesional: string | null; profesionalId: number | null;
+    tieneArchivo: boolean; descarga: boolean; ventas: number; ventasMes: number;
+  }[];
+}
+
+export async function cargarAcademiaAdmin(): Promise<Result<AcademiaAdmin>> {
+  const res = await rpcAdmin<AcademiaAdmin>('admin_academia');
+  if (res.error) return fail(res.error);
+  const a = res.data;
+  return ok({
+    ...a,
+    cursos: (a.cursos ?? []).map((c) => ({ ...c, precio: aUsd(c.precio) })),
+    productos: (a.productos ?? []).map((p) => ({ ...p, precio: aUsd(p.precio) })),
+  });
+}
+
+export function estadoCursoAdmin(cursoId: number, estado: 'borrador' | 'publicado' | 'archivado') {
+  return rpcAdmin<null>('admin_estado_curso', { p_curso_id: cursoId, p_estado: estado });
+}
+
+export function reasignarCursoAdmin(cursoId: number, profesionalId: number) {
+  return rpcAdmin<null>('admin_reasignar_curso', { p_curso_id: cursoId, p_profesional_id: profesionalId });
+}
+
+export function accesoInscripcionAdmin(inscripcionId: number, activa: boolean) {
+  return rpcAdmin<null>('admin_acceso_inscripcion', { p_inscripcion_id: inscripcionId, p_activa: activa });
+}
+
+export function actualizarProductoAdmin(productoId: number, cambios: { activo?: boolean; profesionalId?: number; descarga?: boolean }) {
+  return rpcAdmin<null>('admin_actualizar_producto', {
+    p_producto_id: productoId,
+    p_activo: cambios.activo ?? null,
+    p_profesional_id: cambios.profesionalId ?? null,
+    p_descarga: cambios.descarga ?? null,
+  });
+}
+
+export function actualizarClaseVivoAdmin(
+  claseId: number,
+  cambios: { titulo?: string; fecha?: string; hora?: string; duracion?: number; enlace?: string; cancelar?: boolean }
+) {
+  return rpcAdmin<null>('admin_actualizar_clase_vivo', {
+    p_clase_id: claseId,
+    p_titulo: cambios.titulo ?? null,
+    p_fecha: cambios.fecha ?? null,
+    p_hora: cambios.hora ?? null,
+    p_duracion: cambios.duracion ?? null,
+    p_enlace: cambios.enlace ?? null,
+    p_cancelar: cambios.cancelar ?? false,
+  });
+}

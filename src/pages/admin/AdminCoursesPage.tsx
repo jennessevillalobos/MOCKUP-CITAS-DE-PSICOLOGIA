@@ -9,6 +9,13 @@ import {
   demoCursos, demoInscripciones, demoReglas, demoCuotas,
   type CursoRecord, type InscripcionRecord, type ReglaDesbloqueo, type CuotaRecord, type CuotaEstado, type TipoRegla,
 } from '@/data/admin/coursesData';
+import { useDialogo } from '@/context/DialogoContext';
+import { useAcademiaAdmin, fechaCortaLocal } from '@/hooks/useAcademiaAdmin';
+import AvisoFlotante from '@/components/admin/ui/AvisoFlotante';
+import { estadoCursoAdmin, reasignarCursoAdmin, accesoInscripcionAdmin } from '@/lib/api/admin';
+
+const REGLA_LABEL: Record<string, string> = { secuencial: 'Secuencial', evaluacion: 'Por evaluación', pago: 'Por pago' };
+const ESTADO_CURSO_LABEL: Record<string, string> = { publicado: 'Publicado', borrador: 'Borrador', archivado: 'Archivado' };
 
 type Tab = 'cursos' | 'inscripciones' | 'reglas' | 'cuotas';
 
@@ -62,8 +69,25 @@ export default function AdminCoursesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = (searchParams.get('tab') as Tab) || 'cursos';
 
-  const [cursos] = useState<CursoRecord[]>(demoCursos);
-  const [inscripciones, setInscripciones] = useState<InscripcionRecord[]>(demoInscripciones);
+  const { esReal, datos, error: errorCarga, recargar, aviso, mostrarAviso } = useAcademiaAdmin();
+  const { confirmar } = useDialogo();
+  const [procesando, setProcesando] = useState(false);
+  const cursosReales = datos?.cursos ?? [];
+  // Con Supabase las listas salen de la base (admin_academia); si no, demo.
+  const cursos: CursoRecord[] = esReal
+    ? cursosReales.map((c) => ({
+        id: String(c.id), titulo: c.nombre, descripcion: c.descripcion ?? '', categoria: c.categoria ?? '', precio: c.precio,
+        moneda: c.moneda, estado: c.estado === 'publicado' ? 'Publicado' : 'Borrador', inscritos: c.inscritos, modulos: c.modulos,
+      }))
+    : demoCursos;
+  const [inscripcionesDemo, setInscripciones] = useState<InscripcionRecord[]>(demoInscripciones);
+  const inscripciones: InscripcionRecord[] = esReal
+    ? (datos?.inscripciones ?? []).map((i) => ({
+        id: String(i.id), cursoId: String(i.cursoId), estudiante: i.estudiante ?? '—', correo: i.correo ?? '',
+        fechaInscripcion: fechaCortaLocal(i.fecha), accesoEstado: i.estado === 'activa' ? 'Activo' : 'Suspendido',
+        progreso: Number(i.progreso) || 0, cuotasTotales: 0, cuotasPagadas: 0,
+      }))
+    : inscripcionesDemo;
   const [reglas, setReglas] = useState<ReglaDesbloqueo[]>(demoReglas);
   const [cuotas, setCuotas] = useState<CuotaRecord[]>(demoCuotas);
 
@@ -98,7 +122,25 @@ export default function AdminCoursesPage() {
     [inscripciones, filtroCurso, filtroAcceso, buscar],
   );
 
-  function toggleAcceso(id: string) {
+  async function toggleAcceso(id: string) {
+    if (esReal) {
+      const ins = inscripciones.find((i) => i.id === id);
+      if (!ins) return;
+      const activar = ins.accesoEstado !== 'Activo';
+      const ok = await confirmar(
+        activar
+          ? `¿Reactivar el acceso de ${ins.estudiante} al curso?`
+          : `¿Suspender el acceso de ${ins.estudiante} al curso? No podrá ver las clases hasta que lo reactives. No se toca ningún pago.`,
+        { peligro: !activar, textoAceptar: activar ? 'Reactivar' : 'Suspender' }
+      );
+      if (!ok) return;
+      setProcesando(true);
+      const res = await accesoInscripcionAdmin(Number(id), activar);
+      setProcesando(false);
+      if (res.error) return mostrarAviso(res.error.message, true);
+      mostrarAviso(activar ? 'Acceso reactivado. La estudiante recibió un aviso.' : 'Acceso suspendido. La estudiante recibió un aviso.');
+      return recargar();
+    }
     setInscripciones((prev) => prev.map((i) => (i.id === id ? { ...i, accesoEstado: i.accesoEstado === 'Activo' ? 'Suspendido' : 'Activo' } : i)));
   }
 
@@ -130,14 +172,42 @@ export default function AdminCoursesPage() {
 
   const inscripcionSeleccionada = inscripciones.find((i) => i.id === inscripcionSel) || null;
 
+  async function cambiarEstadoCurso(id: number, estado: 'borrador' | 'publicado', nombre: string) {
+    const ok = await confirmar(
+      estado === 'publicado'
+        ? `¿Publicar "${nombre}"? Aparecerá en el sitio y se podrán inscribir.`
+        : `¿Pasar "${nombre}" a borrador? Deja de mostrarse en el sitio; quienes ya están inscritos conservan su acceso.`,
+      { textoAceptar: estado === 'publicado' ? 'Publicar' : 'Pasar a borrador' }
+    );
+    if (!ok) return;
+    setProcesando(true);
+    const res = await estadoCursoAdmin(id, estado);
+    setProcesando(false);
+    if (res.error) return mostrarAviso(res.error.message, true);
+    mostrarAviso(estado === 'publicado' ? 'Curso publicado.' : 'Curso pasado a borrador.');
+    return recargar();
+  }
+
+  async function reasignarCurso(id: number, profesionalId: number, nombre: string) {
+    const prof = datos?.profesionales.find((p) => p.id === profesionalId)?.nombre ?? 'la profesional';
+    const ok = await confirmar(`¿Reasignar "${nombre}" a ${prof}? Desde ahora lo edita ella y aprueba sus pagos.`, { textoAceptar: 'Reasignar' });
+    if (!ok) return recargar();
+    setProcesando(true);
+    const res = await reasignarCursoAdmin(id, profesionalId);
+    setProcesando(false);
+    if (res.error) return mostrarAviso(res.error.message, true);
+    mostrarAviso(`Curso reasignado a ${prof}.`);
+    return recargar();
+  }
+
   return (
     <AdminLayout>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
-          <p className="mt-1 text-sm text-ink/50">{t.subtitle}</p>
+          <p className="mt-1 text-sm text-ink/50">{esReal ? (lang === 'es' ? 'Academia · datos reales' : 'Academy · live data') : t.subtitle}</p>
         </div>
-        {tab === 'cursos' && (
+        {tab === 'cursos' && !esReal && (
           <Link
             to="/instructor/constructor/nuevo"
             className="flex h-10 items-center gap-2 rounded-2xl bg-brand-gradient px-4 text-sm font-bold text-white shadow-soft hover:opacity-90"
@@ -147,6 +217,14 @@ export default function AdminCoursesPage() {
           </Link>
         )}
       </div>
+
+      {errorCarga && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCarga}</p>}
+      <AvisoFlotante aviso={aviso} />
+      {esReal && tab === 'cursos' && (
+        <p className="rounded-2xl bg-brand-50 px-4 py-3 text-xs text-ink/60">
+          Los cursos los crea y edita cada profesional en su Constructor. Desde aquí puedes publicarlos o pasarlos a borrador y reasignarlos a otra profesional.
+        </p>
+      )}
 
       <div className="flex w-full max-w-2xl gap-1 rounded-2xl border border-brand-100 bg-white p-1">
         {tabs.map((tb) => {
@@ -173,6 +251,53 @@ export default function AdminCoursesPage() {
             <Search size={15} className="text-ink/35" />
             <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder={t.search} className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink/35" />
           </div>
+          {esReal && (
+          <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {cursosReales
+              .filter((c) => c.nombre.toLowerCase().includes(buscar.toLowerCase()))
+              .map((c) => (
+                <div key={c.id} className="flex flex-col rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
+                  <div className="flex items-start justify-between">
+                    <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-50 text-brand-600">
+                      <GraduationCap size={20} />
+                    </span>
+                    <StatusBadge tone={c.estado === 'publicado' ? 'positivo' : c.estado === 'archivado' ? 'negativo' : 'neutro'}>
+                      {ESTADO_CURSO_LABEL[c.estado] ?? c.estado}
+                    </StatusBadge>
+                  </div>
+                  <p className="mt-4 font-display text-lg font-semibold text-ink">{c.nombre}</p>
+                  <p className="mt-1 line-clamp-2 text-xs text-ink/50">{c.descripcion}</p>
+                  <div className="mt-4 flex items-center justify-between text-sm">
+                    <span className="font-semibold text-ink">{c.moneda} {c.precio}</span>
+                    <span className="text-xs text-ink/45">{c.inscritos} {t.enrolled} · {c.modulos} {t.modules} · {c.clases} clases</span>
+                  </div>
+                  <label className="mt-4 block text-[11px] font-bold uppercase tracking-wide text-ink/40">Profesional</label>
+                  <select
+                    value={c.profesionalId ?? ''}
+                    disabled={procesando}
+                    onChange={(e) => void reasignarCurso(c.id, Number(e.target.value), c.nombre)}
+                    className="mt-1 h-9 w-full rounded-xl border border-brand-100 bg-white px-2 text-xs font-semibold text-ink outline-none"
+                  >
+                    {(datos?.profesionales ?? []).map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                  </select>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      disabled={procesando || c.estado === 'archivado'}
+                      onClick={() => void cambiarEstadoCurso(c.id, c.estado === 'publicado' ? 'borrador' : 'publicado', c.nombre)}
+                      className="flex-1 rounded-2xl border border-brand-100 py-2 text-xs font-semibold text-ink hover:bg-brand-50 disabled:opacity-50"
+                    >
+                      {c.estado === 'publicado' ? 'Pasar a borrador' : 'Publicar'}
+                    </button>
+                    <Link to={`/cursos/${c.slug}`} target="_blank" className="flex-1 rounded-2xl border border-brand-100 py-2 text-center text-xs font-semibold text-brand-700 hover:bg-brand-50">
+                      Ver en el sitio
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            {cursosReales.length === 0 && <p className="col-span-full py-10 text-center text-sm text-ink/40">{t.noResults}</p>}
+          </section>
+          )}
+          {!esReal && (
           <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {cursosFiltrados.map((c) => (
               <div key={c.id} className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
@@ -191,6 +316,7 @@ export default function AdminCoursesPage() {
               </div>
             ))}
           </section>
+          )}
         </>
       )}
 
@@ -258,7 +384,34 @@ export default function AdminCoursesPage() {
         </>
       )}
 
-      {tab === 'reglas' && (
+      {tab === 'reglas' && esReal && (
+        <section className="space-y-3 rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
+          <p className="text-xs text-ink/55">
+            La regla de desbloqueo se define clase por clase en el Constructor de cada profesional (secuencial, al aprobar la evaluación o al estar al día con el pago).
+            Aquí ves cómo está configurado cada curso.
+          </p>
+          <div className="divide-y divide-brand-50">
+            {cursosReales.map((c) => (
+              <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-ink">{c.nombre}</p>
+                  <p className="text-xs text-ink/45">{c.profesional ?? '—'} · {c.clases} clases</p>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(c.reglas ?? {}).map(([regla, n]) => (
+                    <span key={regla} className="rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-700">
+                      {REGLA_LABEL[regla] ?? regla}: {n}
+                    </span>
+                  ))}
+                  {!c.reglas && <span className="text-xs text-ink/40">Sin clases todavía</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {tab === 'reglas' && !esReal && (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[280px_1fr]">
           <div className="h-fit space-y-1 rounded-3xl border border-brand-100 bg-white p-3 shadow-soft">
             {cursos.map((c) => (
@@ -319,16 +472,25 @@ export default function AdminCoursesPage() {
                 </label>
               </div>
 
-              <div className="flex gap-2 border-t border-brand-100 pt-3">
-                <button className="flex-1 rounded-xl border border-brand-100 py-2.5 text-sm font-bold text-ink/60 hover:bg-brand-50">{t.discard}</button>
-                <button className="flex-1 rounded-xl bg-brand-gradient py-2.5 text-sm font-bold text-white shadow-soft">{t.save}</button>
-              </div>
+              <p className="border-t border-brand-100 pt-3 text-xs text-ink/40">Los cambios se aplican al marcarlos (demostración).</p>
             </section>
           )}
         </div>
       )}
 
-      {tab === 'cuotas' && (
+      {tab === 'cuotas' && esReal && (
+        <section className="space-y-3 rounded-3xl border border-brand-100 bg-white p-5 text-sm text-ink/60 shadow-soft">
+          <p>
+            Por ahora no hay cuotas: los cursos se pagan completos o con abonos por transferencia, y el acceso se activa al cubrir el precio.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/admin/pagos" className="rounded-2xl border border-brand-100 px-3 py-2 text-xs font-bold text-brand-700 hover:bg-brand-50">Ver pagos</Link>
+            <Link to="/admin/finanzas?tab=ordenes" className="rounded-2xl border border-brand-100 px-3 py-2 text-xs font-bold text-brand-700 hover:bg-brand-50">Ver órdenes y saldos</Link>
+          </div>
+        </section>
+      )}
+
+      {tab === 'cuotas' && !esReal && (
         <>
           <div className="grid grid-cols-3 gap-3">
             <div className="rounded-3xl border border-rose-100 bg-rose-50/50 p-4">
@@ -421,13 +583,18 @@ export default function AdminCoursesPage() {
                 <dd className="font-semibold text-ink">{inscripcionSeleccionada.progreso}%</dd>
               </div>
               <div>
-                <dt className="text-ink/40">{t.installments}</dt>
-                <dd className="font-semibold text-ink">{inscripcionSeleccionada.cuotasPagadas}/{inscripcionSeleccionada.cuotasTotales}</dd>
+                <dt className="text-ink/40">{esReal ? t.access : t.installments}</dt>
+                <dd className="font-semibold text-ink">
+                  {esReal
+                    ? inscripcionSeleccionada.accesoEstado === 'Activo' ? t.active : t.suspended
+                    : `${inscripcionSeleccionada.cuotasPagadas}/${inscripcionSeleccionada.cuotasTotales}`}
+                </dd>
               </div>
             </dl>
             <button
-              onClick={() => toggleAcceso(inscripcionSeleccionada.id)}
-              className="w-full rounded-2xl bg-brand-gradient py-2.5 text-sm font-bold text-white shadow-soft"
+              onClick={() => void toggleAcceso(inscripcionSeleccionada.id)}
+              disabled={procesando}
+              className="w-full rounded-2xl bg-brand-gradient py-2.5 text-sm font-bold text-white shadow-soft disabled:opacity-60"
             >
               {inscripcionSeleccionada.accesoEstado === 'Activo' ? t.suspend : t.activate}
             </button>

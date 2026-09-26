@@ -8,6 +8,12 @@ import {
   demoEvaluaciones, demoPendientesCalificar,
   type EvaluacionRecord, type PendienteCalificar, type EstadoEvaluacion,
 } from '@/data/admin/assessmentsData';
+import { Link } from 'react-router-dom';
+import { useAcademiaAdmin, fechaCortaLocal } from '@/hooks/useAcademiaAdmin';
+
+// Con Supabase: tipo real de la evaluación y número de preguntas.
+type RegistroEvaluacion = EvaluacionRecord & { tipoLabel?: string; preguntas?: number };
+const TIPO_BASE: Record<string, string> = { quiz: 'Quiz', examen_final: 'Examen final' };
 
 type Tab = 'eva' | 'cal' | 'res';
 
@@ -65,8 +71,25 @@ export default function AdminAssessmentsPage() {
   const { lang } = useAdminLanguage();
   const t = text[lang];
 
-  const [evaluaciones, setEvaluaciones] = useState<EvaluacionRecord[]>(demoEvaluaciones);
-  const [pendientes, setPendientes] = useState<PendienteCalificar[]>(demoPendientesCalificar);
+  const { esReal, datos, error: errorCarga } = useAcademiaAdmin();
+  const [evaluacionesDemo, setEvaluaciones] = useState<EvaluacionRecord[]>(demoEvaluaciones);
+  const [pendientesDemo, setPendientes] = useState<PendienteCalificar[]>(demoPendientesCalificar);
+  // Con Supabase: evaluaciones de todos los cursos y los intentos pendientes (solo lectura).
+  const evaluaciones: RegistroEvaluacion[] = esReal
+    ? (datos?.evaluaciones ?? []).map((e) => ({
+        id: String(e.id), nombre: e.titulo, curso: e.curso, modulo: e.modulo ?? '—', instructor: e.profesional ?? '—',
+        tipo: 'Opción múltiple', tipoLabel: TIPO_BASE[e.tipo] ?? e.tipo, intentos: e.intentosMax, notaMinima: e.notaMinima,
+        evaluados: e.evaluados, aprobados: e.aprobados, estado: e.cursoEstado === 'publicado' ? 'Publicada' : 'Borrador',
+        preguntas: e.preguntas,
+      }))
+    : evaluacionesDemo;
+  const pendientes: PendienteCalificar[] = esReal
+    ? (datos?.pendientes ?? []).map((p) => ({
+        id: String(p.id), estudiante: p.estudiante ?? '—', curso: p.curso,
+        pregunta: `${p.evaluacion} · la califica ${p.profesional ?? 'la profesional'}`, fecha: fechaCortaLocal(p.fecha), evaluacionId: '',
+      }))
+    : pendientesDemo;
+  const intentosMes = esReal ? (datos?.evaluaciones ?? []).reduce((acc, e) => acc + e.intentosMes, 0) : null;
 
   const [tab, setTab] = useState<Tab>('eva');
   const [buscarEva, setBuscarEva] = useState('');
@@ -106,8 +129,8 @@ export default function AdminAssessmentsPage() {
     const totalEval = evaluaciones.reduce((acc, e) => acc + e.evaluados, 0);
     const totalAprob = evaluaciones.reduce((acc, e) => acc + e.aprobados, 0);
     const pct = totalEval ? Math.round((totalAprob / totalEval) * 100) : null;
-    return { activas, intentos, pendientes: pendientes.length, pct };
-  }, [evaluaciones, pendientes]);
+    return { activas, intentos: intentosMes ?? intentos, pendientes: pendientes.length, pct };
+  }, [evaluaciones, pendientes, intentosMes]);
 
   const resultadosPorCurso = useMemo(() => {
     const map = new Map<string, { curso: string; evaluados: number; aprobados: number }>();
@@ -162,9 +185,10 @@ export default function AdminAssessmentsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
-          <p className="mt-1 text-sm text-ink/50">{t.subtitle}</p>
+          <p className="mt-1 text-sm text-ink/50">{t.subtitle}{esReal ? (lang === 'es' ? ' · datos reales' : ' · live data') : ''}</p>
         </div>
       </div>
+      {errorCarga && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCarga}</p>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-3xl border border-brand-100 bg-white p-4 shadow-soft">
@@ -244,7 +268,7 @@ export default function AdminAssessmentsPage() {
                       <tr key={e.id} className="cursor-pointer hover:bg-brand-50/50" onClick={() => abrirEvaluacion(e.id)}>
                         <td className="px-4 py-3">
                           <p className="font-semibold text-ink">{e.nombre}</p>
-                          <p className="text-xs text-ink/45">{t.tipos[e.tipo]}</p>
+                          <p className="text-xs text-ink/45">{e.tipoLabel ?? t.tipos[e.tipo]}{e.preguntas !== undefined && ` · ${e.preguntas} preguntas`}</p>
                         </td>
                         <td className="px-4 py-3 text-ink/60">{e.curso}<br /><span className="text-xs text-ink/40">{e.modulo}</span></td>
                         <td className="px-4 py-3 text-ink/60">{e.instructor}</td>
@@ -292,9 +316,13 @@ export default function AdminAssessmentsPage() {
                       <td className="px-4 py-3 max-w-[280px] truncate text-ink/50">{p.pregunta}</td>
                       <td className="px-4 py-3 text-ink/45">{p.fecha}</td>
                       <td className="px-4 py-3 text-right">
-                        <button onClick={() => abrirCalificar(p.id)} className="rounded-full border border-brand-200 px-3 py-1 text-xs font-bold text-brand-700 hover:bg-brand-50">
-                          {t.grade}
-                        </button>
+                        {esReal ? (
+                          <span className="text-[11px] text-ink/40">En el panel de la profesional</span>
+                        ) : (
+                          <button onClick={() => abrirCalificar(p.id)} className="rounded-full border border-brand-200 px-3 py-1 text-xs font-bold text-brand-700 hover:bg-brand-50">
+                            {t.grade}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -337,7 +365,7 @@ export default function AdminAssessmentsPage() {
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <StatusBadge tone={estadoTone(evaluacionSel.estado)}>{evaluacionSel.estado === 'Publicada' ? t.published : t.draft}</StatusBadge>
-              <span className="text-xs text-ink/45">{t.tipos[evaluacionSel.tipo]}</span>
+              <span className="text-xs text-ink/45">{evaluacionSel.tipoLabel ?? t.tipos[evaluacionSel.tipo]}</span>
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-xl bg-brand-50/50 p-3">
@@ -366,6 +394,13 @@ export default function AdminAssessmentsPage() {
               </div>
             </div>
 
+            {esReal ? (
+              <p className="rounded-xl bg-brand-50/60 p-3 text-xs leading-relaxed text-ink/55">
+                {evaluacionSel.preguntas ?? 0} preguntas. La evaluación la edita la profesional en su Constructor y se publica junto con su curso
+                (<Link to="/admin/cursos" className="font-semibold text-brand-700 hover:underline">Cursos</Link>). Las respuestas abiertas las califica ella en “Por calificar”.
+              </p>
+            ) : (
+            <>
             <button
               onClick={() => toggleEstadoEvaluacion(evaluacionSel.id)}
               className={`w-full rounded-xl py-2.5 text-sm font-bold ${
@@ -387,6 +422,8 @@ export default function AdminAssessmentsPage() {
                 <p className={`text-xs ${mensajeLiberar.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{mensajeLiberar.texto}</p>
               )}
             </div>
+            </>
+            )}
           </div>
         </AdminDrawer>
       )}

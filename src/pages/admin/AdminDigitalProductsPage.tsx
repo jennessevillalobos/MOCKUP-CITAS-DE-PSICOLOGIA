@@ -5,6 +5,13 @@ import StatusBadge from '@/components/admin/ui/StatusBadge';
 import AdminDrawer from '@/components/admin/ui/AdminDrawer';
 import { useAdminLanguage } from '@/context/AdminLanguageContext';
 import { demoProductos, CATEGORIAS_PRODUCTO, type ProductoDigitalRecord, type EstadoProducto, type TipoProducto } from '@/data/admin/digitalProductsData';
+import { Link } from 'react-router-dom';
+import AvisoFlotante from '@/components/admin/ui/AvisoFlotante';
+import { useDialogo } from '@/context/DialogoContext';
+import { useAcademiaAdmin } from '@/hooks/useAcademiaAdmin';
+import { actualizarProductoAdmin, type AcademiaAdmin } from '@/lib/api/admin';
+
+type ProductoBase = AcademiaAdmin['productos'][number];
 
 const text = {
   es: {
@@ -53,8 +60,23 @@ type T = typeof text.es | typeof text.en;
 export default function AdminDigitalProductsPage() {
   const { lang } = useAdminLanguage();
   const t = text[lang];
-  const [productos, setProductos] = useState<ProductoDigitalRecord[]>(demoProductos);
   const [busqueda, setBusqueda] = useState('');
+  const { esReal, datos, error: errorCarga, recargar, aviso, mostrarAviso } = useAcademiaAdmin();
+  const { confirmar } = useDialogo();
+  const [procesando, setProcesando] = useState(false);
+  const productosReales = useMemo(() => datos?.productos ?? [], [datos]);
+  const [productos, setProductos] = useState<ProductoDigitalRecord[]>(demoProductos);
+
+  async function actualizarReal(p: ProductoBase, cambios: { activo?: boolean; profesionalId?: number; descarga?: boolean }, texto: string, pregunta?: string) {
+    if (pregunta && !(await confirmar(pregunta, { textoAceptar: 'Confirmar' }))) return recargar();
+    setProcesando(true);
+    const res = await actualizarProductoAdmin(p.id, cambios);
+    setProcesando(false);
+    if (res.error) return mostrarAviso(res.error.message, true);
+    mostrarAviso(texto);
+    return recargar();
+  }
+  const filtradosReales = productosReales.filter((p) => p.titulo.toLowerCase().includes(busqueda.trim().toLowerCase()));
   const [editando, setEditando] = useState<ProductoDigitalRecord | 'new' | null>(null);
 
   const filtrados = useMemo(() => {
@@ -76,20 +98,29 @@ export default function AdminDigitalProductsPage() {
   }
 
   const kpi = useMemo(() => {
+    if (esReal) {
+      return {
+        total: productosReales.length,
+        publicados: productosReales.filter((p) => p.estado === 'activo').length,
+        borradores: productosReales.filter((p) => p.estado !== 'activo').length,
+        ventasMes: productosReales.reduce((acc, p) => acc + p.ventasMes, 0),
+      };
+    }
     const total = productos.length;
     const publicados = productos.filter((p) => p.estado === 'Publicado').length;
     const borradores = productos.filter((p) => p.estado === 'Borrador').length;
     const ventasMes = productos.reduce((acc, p) => acc + p.ventas, 0);
     return { total, publicados, borradores, ventasMes };
-  }, [productos]);
+  }, [productos, productosReales, esReal]);
 
   return (
     <AdminLayout>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
-          <p className="mt-1 text-sm text-ink/50">{t.subtitle}</p>
+          <p className="mt-1 text-sm text-ink/50">{esReal ? (lang === 'es' ? 'Libros y videos protegidos · datos reales' : 'Protected books and videos · live data') : t.subtitle}</p>
         </div>
+        {!esReal && (
         <button
           onClick={() => setEditando('new')}
           className="flex h-10 items-center gap-2 rounded-2xl bg-brand-gradient px-4 text-sm font-bold text-white shadow-soft"
@@ -97,13 +128,22 @@ export default function AdminDigitalProductsPage() {
           <Plus size={16} />
           {t.newProduct}
         </button>
+        )}
       </div>
+      {errorCarga && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCarga}</p>}
+      <AvisoFlotante aviso={aviso} />
+      {esReal && (
+        <p className="rounded-2xl bg-brand-50 px-4 py-3 text-xs text-ink/60">
+          El catálogo (título, precio, portada) sale del sitio. Cada producto tiene una profesional responsable que sube el archivo en “Mis productos” y aprueba
+          las transferencias. Desde aquí puedes activarlo o desactivarlo en la tienda, reasignarlo y decidir si se puede descargar.
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
           { label: t.kpiTotal, value: kpi.total },
-          { label: t.kpiPublished, value: kpi.publicados },
-          { label: t.kpiDrafts, value: kpi.borradores },
+          { label: esReal ? (lang === 'es' ? 'Activos' : 'Active') : t.kpiPublished, value: kpi.publicados },
+          { label: esReal ? (lang === 'es' ? 'Inactivos' : 'Inactive') : t.kpiDrafts, value: kpi.borradores },
           { label: t.kpiSales, value: kpi.ventasMes },
         ].map((k) => (
           <div key={k.label} className="rounded-3xl border border-brand-100 bg-white p-4 shadow-soft">
@@ -123,6 +163,84 @@ export default function AdminDigitalProductsPage() {
         />
       </div>
 
+      {esReal && (
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {filtradosReales.map((p) => {
+          const Icon = p.tipo === 'video' ? VideoIcon : BookOpen;
+          return (
+            <div key={p.id} className="flex flex-col rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
+              <div className="flex items-start justify-between">
+                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-50 text-brand-600">
+                  <Icon size={20} />
+                </span>
+                <StatusBadge tone={p.estado === 'activo' ? 'positivo' : 'neutro'}>{p.estado === 'activo' ? 'Activo' : 'Inactivo'}</StatusBadge>
+              </div>
+              <p className="mt-4 font-display text-lg font-semibold text-ink">{p.titulo}</p>
+              <p className="text-xs text-ink/45">{p.tipo === 'video' ? 'Video' : 'Libro PDF'} · {p.categoria ?? '—'} · {p.clave}</p>
+              <p className={`mt-2 flex items-center gap-1 text-[11px] ${p.tieneArchivo ? 'text-ink/45' : 'text-amber-700'}`}>
+                <ShieldCheck size={12} className={p.tieneArchivo ? 'text-brand-500' : 'text-amber-500'} />
+                {p.tieneArchivo ? 'Archivo cargado' : 'Falta subir el archivo'}
+              </p>
+              <div className="mt-3 flex items-center justify-between text-sm">
+                <span className="font-semibold text-ink">{p.moneda} {p.precio}</span>
+                <span className="text-xs text-ink/45">{p.ventas} {t.sales}</span>
+              </div>
+              <label className="mt-3 block text-[11px] font-bold uppercase tracking-wide text-ink/40">Profesional responsable</label>
+              <select
+                value={p.profesionalId ?? ''}
+                disabled={procesando}
+                onChange={(e) => {
+                  const nueva = datos?.profesionales.find((x) => x.id === Number(e.target.value));
+                  void actualizarReal(
+                    p,
+                    { profesionalId: Number(e.target.value) },
+                    `Producto reasignado a ${nueva?.nombre ?? 'la profesional'}.`,
+                    `¿Reasignar "${p.titulo}" a ${nueva?.nombre ?? 'esa profesional'}? Ella subirá el archivo y aprobará sus transferencias.`
+                  );
+                }}
+                className="mt-1 h-9 w-full rounded-xl border border-brand-100 bg-white px-2 text-xs font-semibold text-ink outline-none"
+              >
+                {(datos?.profesionales ?? []).map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+              </select>
+              <label className="mt-3 flex items-center justify-between text-xs text-ink/70">
+                {t.download}
+                <input
+                  type="checkbox"
+                  checked={p.descarga}
+                  disabled={procesando}
+                  onChange={(e) => void actualizarReal(p, { descarga: e.target.checked }, e.target.checked ? 'Descarga permitida.' : 'Descarga desactivada: solo lectura en la página.')}
+                  className="h-4 w-4 rounded border-brand-300 text-brand-600"
+                />
+              </label>
+              <div className="mt-3 flex gap-2">
+                <button
+                  disabled={procesando}
+                  onClick={() =>
+                    void actualizarReal(
+                      p,
+                      { activo: p.estado !== 'activo' },
+                      p.estado === 'activo' ? 'Producto desactivado.' : 'Producto activado.',
+                      p.estado === 'activo'
+                        ? `¿Desactivar "${p.titulo}"? No se podrá comprar; quienes ya lo compraron lo conservan.`
+                        : undefined
+                    )
+                  }
+                  className="flex-1 rounded-2xl border border-brand-100 py-2 text-xs font-semibold text-ink hover:bg-brand-50 disabled:opacity-50"
+                >
+                  {p.estado === 'activo' ? 'Desactivar' : 'Activar'}
+                </button>
+                <Link to={`/tienda/${p.clave}`} target="_blank" className="flex-1 rounded-2xl border border-brand-100 py-2 text-center text-xs font-semibold text-brand-700 hover:bg-brand-50">
+                  Ver en la tienda
+                </Link>
+              </div>
+            </div>
+          );
+        })}
+        {filtradosReales.length === 0 && <p className="col-span-full py-10 text-center text-sm text-ink/40">{t.noResults}</p>}
+      </section>
+      )}
+
+      {!esReal && (
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {filtrados.map((p) => {
           const Icon = tipoIcon[p.tipo];
@@ -164,6 +282,7 @@ export default function AdminDigitalProductsPage() {
           <p className="col-span-full py-10 text-center text-sm text-ink/40">{t.noResults}</p>
         )}
       </section>
+      )}
 
       {editando && (
         <ProductoDrawer t={t} value={editando === 'new' ? null : editando} onClose={() => setEditando(null)} onSave={guardar} />
