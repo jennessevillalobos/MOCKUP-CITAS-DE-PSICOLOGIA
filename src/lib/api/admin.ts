@@ -117,3 +117,130 @@ export function cambiarEstadoUsuario(usuarioId: string, estado: EstadoCuenta) {
 export function claveTemporalUsuario(usuarioId: string, clave: string) {
   return rpcAdmin<null>('admin_clave_temporal', { p_usuario_id: usuarioId, p_clave: clave });
 }
+
+// ── Pagos y Finanzas (migraciones 041–042) ──
+
+export type EstadoPagoBase = 'pendiente' | 'aprobado' | 'rechazado' | 'pendiente_reembolso' | 'reembolsado';
+
+export interface PagoAdmin {
+  id: string;
+  ordenId: string | null;
+  cliente: string | null;
+  correo: string | null;
+  concepto: string;
+  tipo: 'cita' | 'curso' | 'producto_digital' | 'cuota' | null;
+  metodo: string;
+  monto: number;
+  moneda: string;
+  fecha: string;
+  estado: EstadoPagoBase;
+  referencia: string | null;
+  comprobante: string | null;
+  motivoRechazo: string | null;
+  reembolsado: number;
+  reembolsos: { monto: number; motivo: string; fecha: string }[];
+  profesional: string | null;
+}
+
+export async function listarPagosAdmin(): Promise<Result<PagoAdmin[]>> {
+  const res = await rpcAdmin<PagoAdmin[] | null>('admin_listar_pagos');
+  if (res.error) return fail(res.error);
+  return ok(
+    (res.data ?? []).map((p) => ({
+      ...p,
+      monto: aUsd(p.monto),
+      reembolsado: aUsd(p.reembolsado),
+      reembolsos: (p.reembolsos ?? []).map((r) => ({ ...r, monto: aUsd(r.monto) })),
+    }))
+  );
+}
+
+// Monto en USD; la base lo guarda en centavos.
+export function reembolsarPago(pagoId: string, montoUsd: number, motivo: string) {
+  return rpcAdmin<null>('admin_reembolsar_pago', { p_pago_id: pagoId, p_monto: Math.round(montoUsd * 100), p_motivo: motivo });
+}
+
+export interface OrdenAdmin {
+  id: string;
+  cliente: string | null;
+  concepto: string | null;
+  tipo: string;
+  total: number;
+  moneda: string;
+  estado: 'pendiente' | 'pagado' | 'cancelado' | 'reembolsado';
+  fecha: string;
+  saldoCita: number | null;
+  pagos: { id: string; monto: number; moneda: string; metodo: string; fecha: string; estado: EstadoPagoBase; referencia: string | null }[];
+  reembolsado: number;
+}
+
+export async function listarOrdenesAdmin(): Promise<Result<OrdenAdmin[]>> {
+  const res = await rpcAdmin<OrdenAdmin[] | null>('admin_listar_ordenes');
+  if (res.error) return fail(res.error);
+  return ok(
+    (res.data ?? []).map((o) => ({
+      ...o,
+      total: aUsd(o.total),
+      saldoCita: o.saldoCita === null ? null : aUsd(o.saldoCita),
+      reembolsado: aUsd(o.reembolsado),
+      pagos: (o.pagos ?? []).map((p) => ({ ...p, monto: aUsd(p.monto) })),
+    }))
+  );
+}
+
+export function registrarAbonoAdmin(ordenId: string, montoUsd: number, referencia?: string) {
+  return rpcAdmin<null>('admin_registrar_abono', { p_orden_id: ordenId, p_monto: Math.round(montoUsd * 100), p_referencia: referencia ?? null });
+}
+
+export interface MonedaBase {
+  codigo: string;
+  nombre: string;
+  simbolo: string;
+  esPrincipal: boolean;
+  activa: boolean;
+}
+
+export interface TasaBase {
+  id: number;
+  codigo: string;
+  // Unidades de la moneda por 1 USD.
+  tasa: number;
+  fecha: string;
+}
+
+// Monedas y tasas son de lectura pública. Las tasas guardadas como
+// "X → USD" se invierten para mostrarlas siempre como unidades por 1 USD.
+export async function cargarMonedasYTasas(): Promise<Result<{ monedas: MonedaBase[]; tasas: TasaBase[] }>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+  const [m, t] = await Promise.all([
+    supabase.from('monedas').select('codigo, nombre, simbolo, es_principal, estado').order('es_principal', { ascending: false }).order('codigo'),
+    supabase.from('tasas_cambio').select('id, moneda_origen, moneda_destino, tasa, fecha').order('fecha', { ascending: false }).order('id', { ascending: false }),
+  ]);
+  if (m.error) return fail(toServiceError(m.error));
+  if (t.error) return fail(toServiceError(t.error));
+  const base = (m.data ?? []).find((x) => x.es_principal)?.codigo ?? 'USD';
+  const tasas: TasaBase[] = [];
+  for (const r of t.data ?? []) {
+    const valor = Number(r.tasa);
+    if (!(valor > 0)) continue;
+    if (r.moneda_origen === base) tasas.push({ id: r.id, codigo: r.moneda_destino, tasa: valor, fecha: r.fecha });
+    else if (r.moneda_destino === base) tasas.push({ id: r.id, codigo: r.moneda_origen, tasa: Math.round((1 / valor) * 10000) / 10000, fecha: r.fecha });
+  }
+  return ok({
+    monedas: (m.data ?? []).map((x) => ({ codigo: x.codigo, nombre: x.nombre, simbolo: x.simbolo, esPrincipal: !!x.es_principal, activa: x.estado === 'activo' })),
+    tasas,
+  });
+}
+
+export function guardarMonedaAdmin(codigo: string, nombre: string, simbolo: string) {
+  return rpcAdmin<null>('admin_guardar_moneda', { p_codigo: codigo, p_nombre: nombre, p_simbolo: simbolo });
+}
+
+export function estadoMonedaAdmin(codigo: string, activa: boolean) {
+  return rpcAdmin<null>('admin_estado_moneda', { p_codigo: codigo, p_activa: activa });
+}
+
+export function registrarTasaAdmin(codigo: string, tasa: number) {
+  return rpcAdmin<null>('admin_registrar_tasa', { p_codigo: codigo, p_tasa: tasa });
+}

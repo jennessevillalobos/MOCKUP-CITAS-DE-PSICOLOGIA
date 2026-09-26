@@ -1,12 +1,66 @@
-import { useMemo, useState } from 'react';
-import { Search, Check, X, Landmark, RotateCcw, Wallet, Clock, TrendingUp } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Search, Check, X, Landmark, RotateCcw, Wallet, Clock, TrendingUp, FileImage } from 'lucide-react';
 import AdminLayout from '@/components/admin/AdminLayout';
 import StatusBadge from '@/components/admin/ui/StatusBadge';
 import AdminModal from '@/components/admin/ui/AdminModal';
 import { useAdminLanguage } from '@/context/AdminLanguageContext';
 import { demoPagos, type PagoRecord, type EstadoPago, type MetodoPago, type ReembolsoRecord } from '@/data/admin/paymentsData';
+import { useAdminAuth } from '@/context/AdminAuthContext';
+import { useDialogo } from '@/context/DialogoContext';
+import { listarPagosAdmin, reembolsarPago, type PagoAdmin } from '@/lib/api/admin';
+import { revisarPago, urlComprobante } from '@/lib/api/pagos';
 
-const HOY = '2026-08-12';
+const HOY_DEMO = '2026-08-12';
+
+function hoyLocal(iso?: string) {
+  const d = iso ? new Date(iso) : new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Con Supabase: pago de la base → fila de la pantalla.
+type RegistroPago = PagoRecord & { comprobante?: string | null; profesional?: string | null; disponible?: number; real?: boolean };
+
+const METODO_DESDE_BASE: Record<string, MetodoPago> = {
+  transferencia: 'Transferencia', manual: 'Efectivo', credito: 'Efectivo', stripe: 'Tarjeta', paypal: 'Tarjeta',
+};
+
+function desdeBase(p: PagoAdmin): RegistroPago {
+  const estado: EstadoPago =
+    p.estado === 'pendiente' ? 'En revisión'
+      : p.estado === 'rechazado' ? 'Rechazado'
+        : p.estado === 'reembolsado' ? 'Reembolsado'
+          : p.estado === 'pendiente_reembolso' ? 'Pendiente'
+            : p.reembolsado > 0 ? 'Parcial' : 'Aprobado';
+  const metodo = METODO_DESDE_BASE[p.metodo] ?? 'Transferencia';
+  const ultimo = p.reembolsos[p.reembolsos.length - 1];
+  return {
+    id: p.id,
+    cliente: p.cliente ?? '—',
+    correo: p.correo ?? '',
+    concepto: p.concepto,
+    metodo,
+    monto: p.monto,
+    moneda: p.moneda,
+    fecha: hoyLocal(p.fecha),
+    estado,
+    referencia: p.referencia ?? undefined,
+    notas: p.motivoRechazo ? `Motivo del rechazo: ${p.motivoRechazo}` : undefined,
+    reembolso: ultimo
+      ? {
+          tipo: p.estado === 'reembolsado' ? 'Total' : 'Parcial',
+          monto: p.reembolsado,
+          motivo: p.reembolsos.map((r) => r.motivo).join(' · '),
+          generarCredito: false,
+          metodoDevolucion: metodo,
+          fecha: hoyLocal(ultimo.fecha),
+        }
+      : undefined,
+    comprobante: p.comprobante,
+    profesional: p.profesional,
+    disponible: Math.round((p.monto - p.reembolsado) * 100) / 100,
+    real: true,
+  };
+}
 
 const text = {
   es: {
@@ -55,7 +109,15 @@ const ESTADOS: EstadoPago[] = ['Pendiente', 'Reportado', 'En revisión', 'Aproba
 export default function AdminPaymentsPage() {
   const { lang } = useAdminLanguage();
   const t = text[lang];
-  const [pagos, setPagos] = useState<PagoRecord[]>(demoPagos);
+  const { esReal } = useAdminAuth();
+  const { confirmar, pedirTexto } = useDialogo();
+  const HOY = esReal ? hoyLocal() : HOY_DEMO;
+  const [pagos, setPagos] = useState<RegistroPago[]>(() => (esReal ? [] : demoPagos));
+  const [cargando, setCargando] = useState(esReal);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<{ texto: string; error?: boolean } | null>(null);
+  const [procesando, setProcesando] = useState(false);
+  const [urlRecibo, setUrlRecibo] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<'Todos' | EstadoPago>('Todos');
   const [filtroMetodo, setFiltroMetodo] = useState<'Todos' | MetodoPago>('Todos');
@@ -66,6 +128,37 @@ export default function AdminPaymentsPage() {
   });
 
   const seleccionado = pagos.find((p) => p.id === seleccionadoId) || null;
+
+  function mostrarAviso(texto: string, error = false) {
+    setAviso({ texto, error });
+    window.setTimeout(() => setAviso(null), 4000);
+  }
+
+  const recargar = useCallback(async () => {
+    if (!esReal) return;
+    const res = await listarPagosAdmin();
+    setCargando(false);
+    if (res.error) setErrorCarga(res.error.message);
+    else {
+      setErrorCarga(null);
+      setPagos(res.data.map(desdeBase));
+    }
+  }, [esReal]);
+
+  useEffect(() => {
+    void recargar();
+  }, [recargar]);
+
+  // Comprobante (bucket privado): enlace temporal al abrir el detalle.
+  useEffect(() => {
+    setUrlRecibo(null);
+    if (!esReal || !seleccionado?.comprobante) return;
+    let vigente = true;
+    void urlComprobante(seleccionado.comprobante).then((u) => vigente && setUrlRecibo(u));
+    return () => {
+      vigente = false;
+    };
+  }, [esReal, seleccionado?.id, seleccionado?.comprobante]);
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -83,23 +176,68 @@ export default function AdminPaymentsPage() {
     const montoPendiente = pagos
       .filter((p) => ['Pendiente', 'Reportado', 'En revisión', 'Vencido'].includes(p.estado))
       .reduce((acc, p) => acc + p.monto, 0);
-    const reembolsosMes = pagos.reduce((acc, p) => acc + (p.reembolso ? p.reembolso.monto : 0), 0);
+    const mes = HOY.slice(0, 7);
+    const reembolsosMes = pagos.reduce(
+      (acc, p) => acc + (p.reembolso && (!esReal || p.reembolso.fecha.startsWith(mes)) ? p.reembolso.monto : 0),
+      0
+    );
     return { porRevisar, aprobadosHoy, montoPendiente, reembolsosMes };
-  }, [pagos]);
+  }, [pagos, HOY, esReal]);
 
-  function actualizarEstado(id: string, estado: EstadoPago, notas?: string) {
-    setPagos((prev) => prev.map((p) => (p.id === id ? { ...p, estado, notas: notas ?? p.notas } : p)));
+  async function actualizarEstado(id: string, estado: EstadoPago, notas?: string) {
+    if (!esReal) {
+      setPagos((prev) => prev.map((p) => (p.id === id ? { ...p, estado, notas: notas ?? p.notas } : p)));
+      setSeleccionadoId(null);
+      return;
+    }
+    // Modo real: la misma revisión que usa la profesional (revisar_pago).
+    const aprobar = estado === 'Aprobado';
+    let motivo: string | undefined;
+    if (aprobar) {
+      const pago = pagos.find((p) => p.id === id);
+      const ok = await confirmar(
+        `¿Aprobar el pago de ${pago?.moneda ?? ''} ${pago?.monto ?? ''} de ${pago?.cliente ?? 'este cliente'}? Se abonará a su cita, curso o producto.`,
+        { textoAceptar: 'Aprobar' }
+      );
+      if (!ok) return;
+    } else {
+      const texto = await pedirTexto('Motivo del rechazo (lo verá el paciente):', { peligro: true, textoAceptar: 'Rechazar' });
+      if (texto === null) return;
+      motivo = texto;
+    }
+    setProcesando(true);
+    const res = await revisarPago(id, aprobar, motivo);
+    setProcesando(false);
+    if (res.error) return mostrarAviso(res.error.message, true);
+    mostrarAviso(aprobar ? 'Pago aprobado.' : 'Pago rechazado.');
     setSeleccionadoId(null);
+    await recargar();
   }
 
   function abrirReembolso() {
     if (!seleccionado) return;
-    setRefundForm({ tipo: 'Total', monto: seleccionado.monto, motivo: '', notas: '', generarCredito: false, metodoDevolucion: seleccionado.metodo, fecha: HOY });
+    const disponible = seleccionado.disponible ?? seleccionado.monto;
+    setRefundForm({ tipo: 'Total', monto: disponible, motivo: '', notas: '', generarCredito: false, metodoDevolucion: seleccionado.metodo, fecha: HOY });
     setRefundOpen(true);
   }
 
-  function confirmarReembolso() {
+  async function confirmarReembolso() {
     if (!seleccionado) return;
+    if (esReal) {
+      const disponible = seleccionado.disponible ?? seleccionado.monto;
+      const monto = refundForm.tipo === 'Total' ? disponible : refundForm.monto;
+      if (!refundForm.motivo.trim()) return mostrarAviso('Indica el motivo del reembolso.', true);
+      if (!(monto > 0) || monto > disponible) return mostrarAviso(`El monto debe estar entre 0,01 y ${disponible}.`, true);
+      setProcesando(true);
+      const res = await reembolsarPago(seleccionado.id, monto, [refundForm.motivo.trim(), refundForm.notas?.trim()].filter(Boolean).join(' — '));
+      setProcesando(false);
+      if (res.error) return mostrarAviso(res.error.message, true);
+      mostrarAviso('Reembolso registrado. El paciente recibió un aviso.');
+      setRefundOpen(false);
+      setSeleccionadoId(null);
+      await recargar();
+      return;
+    }
     const estado: EstadoPago = refundForm.tipo === 'Total' ? 'Reembolsado' : 'Parcial';
     setPagos((prev) => prev.map((p) => (p.id === seleccionado.id ? { ...p, estado, reembolso: refundForm } : p)));
     setRefundOpen(false);
@@ -118,9 +256,22 @@ export default function AdminPaymentsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
-          <p className="mt-1 text-sm text-ink/50">{t.subtitle}</p>
+          <p className="mt-1 text-sm text-ink/50">
+            {esReal ? (lang === 'es' ? 'Verificación de pagos manuales y reembolsos · datos reales' : 'Manual payment verification and refunds · live data') : t.subtitle}
+            {cargando ? ' · …' : ''}
+          </p>
         </div>
       </div>
+
+      {errorCarga && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCarga}</p>}
+      {aviso && (
+        <p
+          role="status"
+          className={`fixed bottom-6 right-6 z-[60] max-w-sm rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-lg ${aviso.error ? 'bg-rose-600' : 'bg-emerald-600'}`}
+        >
+          {aviso.texto}
+        </p>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {kpiCards.map((k) => {
@@ -240,12 +391,40 @@ export default function AdminPaymentsPage() {
                   {t.receipt}
                 </p>
                 <div className="space-y-1.5 rounded-xl border border-brand-100 bg-white p-3 font-mono text-xs text-ink/70">
-                  <p className="flex justify-between"><span>{t.bank}</span><span className="font-semibold text-ink">{seleccionado.banco || '—'}</span></p>
+                  {!seleccionado.real && (
+                    <p className="flex justify-between"><span>{t.bank}</span><span className="font-semibold text-ink">{seleccionado.banco || '—'}</span></p>
+                  )}
                   <p className="flex justify-between"><span>{t.reference}</span><span className="font-semibold text-ink">{seleccionado.referencia || '—'}</span></p>
                   <p className="flex justify-between"><span>{t.amount}</span><span className="font-semibold text-ink">{seleccionado.moneda} {seleccionado.monto}</span></p>
                   <p className="flex justify-between"><span>{t.date}</span><span className="font-semibold text-ink">{seleccionado.fecha}</span></p>
                 </div>
+                {seleccionado.real &&
+                  (seleccionado.comprobante ? (
+                    urlRecibo ? (
+                      <a href={urlRecibo} target="_blank" rel="noreferrer" className="mt-3 block overflow-hidden rounded-xl border border-brand-100 bg-white">
+                        {/\.pdf($|\?)/i.test(seleccionado.comprobante) ? (
+                          <span className="flex items-center gap-2 p-3 text-xs font-semibold text-brand-700"><FileImage size={14} />Abrir comprobante (PDF)</span>
+                        ) : (
+                          <>
+                            <img src={urlRecibo} alt="Comprobante" className="max-h-72 w-full object-contain" />
+                            <span className="flex items-center gap-2 border-t border-brand-100 p-2 text-xs font-semibold text-brand-700">
+                              <FileImage size={14} />
+                              Abrir comprobante
+                            </span>
+                          </>
+                        )}
+                      </a>
+                    ) : (
+                      <p className="mt-3 text-xs text-ink/45">Cargando comprobante…</p>
+                    )
+                  ) : (
+                    <p className="mt-3 text-xs text-ink/45">El paciente no adjuntó comprobante.</p>
+                  ))}
               </div>
+            )}
+
+            {seleccionado.real && seleccionado.profesional && (
+              <p className="text-xs text-ink/50">Profesional responsable: <b className="text-ink/70">{seleccionado.profesional}</b></p>
             )}
 
             {seleccionado.notas && (
@@ -264,22 +443,24 @@ export default function AdminPaymentsPage() {
               {['Pendiente', 'Reportado', 'En revisión', 'Vencido'].includes(seleccionado.estado) && (
                 <>
                   <button
-                    onClick={() => actualizarEstado(seleccionado.id, 'Aprobado')}
-                    className="flex items-center gap-2 rounded-2xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft"
+                    onClick={() => void actualizarEstado(seleccionado.id, 'Aprobado')}
+                    disabled={procesando}
+                    className="flex items-center gap-2 rounded-2xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft disabled:opacity-60"
                   >
                     <Check size={15} />
                     {t.verify}
                   </button>
                   <button
-                    onClick={() => actualizarEstado(seleccionado.id, 'Rechazado', 'Comprobante rechazado por un administrador.')}
-                    className="flex items-center gap-2 rounded-2xl border border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-600 hover:bg-rose-50"
+                    onClick={() => void actualizarEstado(seleccionado.id, 'Rechazado', 'Comprobante rechazado por un administrador.')}
+                    disabled={procesando}
+                    className="flex items-center gap-2 rounded-2xl border border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
                   >
                     <X size={15} />
                     {t.reject}
                   </button>
                 </>
               )}
-              {seleccionado.estado === 'Aprobado' && (
+              {(seleccionado.estado === 'Aprobado' || (seleccionado.real && seleccionado.estado === 'Parcial')) && (
                 <button
                   onClick={abrirReembolso}
                   className="flex items-center gap-2 rounded-2xl border border-lilac-200 px-4 py-2.5 text-sm font-semibold text-lilac-700 hover:bg-lilac-50"
@@ -296,13 +477,22 @@ export default function AdminPaymentsPage() {
       {refundOpen && seleccionado && (
         <AdminModal title={t.refundTitle} onClose={() => setRefundOpen(false)}>
           <div className="space-y-4 text-sm">
+            {seleccionado.real && (
+              <p className="rounded-2xl bg-brand-50 px-3 py-2.5 text-xs leading-relaxed text-ink/60">
+                El dinero se devuelve por fuera (transferencia, efectivo…). Aquí queda registrado: en una cita vuelve a quedar ese saldo;
+                en un curso o libro, un reembolso <b>total</b> quita el acceso. Disponible para reembolsar: {seleccionado.moneda}{' '}
+                {seleccionado.disponible}.
+              </p>
+            )}
             <div>
               <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-ink/40">{t.refundType}</label>
               <div className="flex gap-1 rounded-2xl border border-brand-100 bg-brand-50/40 p-1">
                 {(['Total', 'Parcial'] as const).map((op) => (
                   <button
                     key={op}
-                    onClick={() => setRefundForm((f) => ({ ...f, tipo: op, monto: op === 'Total' ? seleccionado.monto : f.monto }))}
+                    onClick={() =>
+                      setRefundForm((f) => ({ ...f, tipo: op, monto: op === 'Total' ? seleccionado.disponible ?? seleccionado.monto : f.monto }))
+                    }
                     className={`flex-1 rounded-xl px-3 py-1.5 text-xs font-bold transition ${
                       refundForm.tipo === op ? 'bg-brand-gradient text-white shadow-soft' : 'text-ink/50 hover:bg-white'
                     }`}
@@ -339,6 +529,8 @@ export default function AdminPaymentsPage() {
                 className="w-full rounded-xl border border-brand-200 px-3 py-2 text-sm text-ink outline-none"
               />
             </div>
+            {!seleccionado.real && (
+            <>
             <div>
               <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">{t.refundMethod}</label>
               <select
@@ -361,9 +553,17 @@ export default function AdminPaymentsPage() {
               />
               {t.credit}
             </label>
+            </>
+            )}
             <div className="flex gap-2 border-t border-brand-100 pt-3">
               <button onClick={() => setRefundOpen(false)} className="flex-1 rounded-xl border border-brand-100 py-2.5 text-sm font-bold text-ink/60 hover:bg-brand-50">{t.cancel}</button>
-              <button onClick={confirmarReembolso} className="flex-1 rounded-xl bg-brand-gradient py-2.5 text-sm font-bold text-white shadow-soft">{t.confirmRefund}</button>
+              <button
+                onClick={() => void confirmarReembolso()}
+                disabled={procesando}
+                className="flex-1 rounded-xl bg-brand-gradient py-2.5 text-sm font-bold text-white shadow-soft disabled:opacity-60"
+              >
+                {t.confirmRefund}
+              </button>
             </div>
           </div>
         </AdminModal>
