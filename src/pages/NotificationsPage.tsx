@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { GraduationCap, ClipboardCheck, Radio, Trophy, CreditCard, Bell } from 'lucide-react';
+import { GraduationCap, ClipboardCheck, Radio, Trophy, CreditCard, Bell, CalendarDays, Star } from 'lucide-react';
 import PortalLayout from '@/components/site/PortalLayout';
 import { AULA_NAV_LABELS, buildAulaVirtualNav } from '@/components/site/aulaVirtualNav';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
-import { NOTIFICACIONES_COMPLETAS, type TipoNotificacion } from '@/data/notificationsData';
+import { NOTIFICACIONES_COMPLETAS } from '@/data/notificationsData';
+import { useSiteAuth } from '@/context/SiteAuthContext';
+import { cargarNotificaciones, marcarNotificacionesLeidas } from '@/lib/api/notificaciones';
 
 const text = {
   es: {
@@ -23,25 +25,50 @@ const text = {
   },
 } as const;
 
-const tipoIcono: Record<TipoNotificacion, typeof GraduationCap> = {
+// Tipos del demo (cuota, certificado) y de la base (cita, curso, pago, reseña).
+const tipoIcono: Record<string, typeof GraduationCap> = {
   vivo: Radio,
   evaluacion: ClipboardCheck,
   cuota: CreditCard,
+  pago: CreditCard,
   certificado: Trophy,
+  cita: CalendarDays,
+  curso: GraduationCap,
+  'reseña': Star,
 };
+
+interface NotifVista {
+  id?: string;
+  tipo: string;
+  grupo: 'hoy' | 'semana' | 'anteriores';
+  texto: { es: string; en: string };
+  tiempo: { es: string; en: string };
+  leida: boolean;
+  link: string;
+}
 
 export default function NotificationsPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
   const navItems = buildAulaVirtualNav(AULA_NAV_LABELS[language], ['notif']);
 
-  const [notifs, setNotifs] = useState(NOTIFICACIONES_COMPLETAS.map((n) => ({ ...n })));
+  const { esSesionReal } = useSiteAuth();
+  const [notifs, setNotifs] = useState<NotifVista[]>(() => (esSesionReal ? [] : NOTIFICACIONES_COMPLETAS.map((n) => ({ ...n }))));
+
+  // Con sesión real: notificaciones de la base (las generan los triggers).
+  useEffect(() => {
+    if (!esSesionReal) return;
+    void cargarNotificaciones().then((res) => { if (!res.error) setNotifs(res.data); });
+  }, [esSesionReal]);
 
   function marcarLeida(index: number) {
-    setNotifs((arr) => arr.map((n, i) => (i === index ? { ...n, leida: true } : n)));
+    const n = notifs[index];
+    if (esSesionReal && n?.id && !n.leida) void marcarNotificacionesLeidas([n.id]);
+    setNotifs((arr) => arr.map((x, i) => (i === index ? { ...x, leida: true } : x)));
   }
 
   function marcarTodasLeidas() {
+    if (esSesionReal && notifs.some((n) => !n.leida)) void marcarNotificacionesLeidas(null);
     setNotifs((arr) => arr.map((n) => ({ ...n, leida: true })));
   }
 
@@ -56,11 +83,11 @@ export default function NotificationsPage() {
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink/40">{titulo}</p>
         <div className="space-y-2">
           {items.map(([n, i]) => {
-            const Icon = tipoIcono[n.tipo];
+            const Icon = tipoIcono[n.tipo] ?? Bell;
             return (
               <Link
-                key={i}
-                to={n.link}
+                key={n.id ?? i}
+                to={n.link || '/aula-virtual'}
                 onClick={() => marcarLeida(i)}
                 className={`flex gap-3 rounded-2xl border bg-white p-4 shadow-soft transition hover:bg-brand-50/60 ${
                   n.leida ? 'border-brand-100' : 'border-brand-300'

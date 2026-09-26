@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeft, Play, Mic, Video as VideoIcon, Hand, ScreenShare, PhoneOff, Send, Radio,
 } from 'lucide-react';
@@ -7,6 +7,8 @@ import { AULA_NAV_LABELS, buildAulaVirtualNav } from '@/components/site/aulaVirt
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { PROXIMAS_CLASES, GRABACIONES, CHAT_DEMO } from '@/data/liveClassesData';
+import { cargarMisClasesVivo, type ClaseVivoEstudiante } from '@/lib/api/cursosEstudiante';
+import { cambiarRecordatorio } from '@/lib/api/clasesVivo';
 
 type Vista = 'lista' | 'sala' | 'grabacion';
 type Tab = 'proximas' | 'grabaciones';
@@ -29,6 +31,9 @@ const text = {
     chat: 'Chat', participantes: 'Participantes',
     levantoMano: 'levantó la mano', escribeMensaje: 'Escribe un mensaje…',
     volverListado: 'Volver a clases en vivo',
+    hoy: 'HOY', sinProximas: 'No tienes clases en vivo programadas.', sinGrabaciones: 'Aún no hay grabaciones.',
+    recordatorioActivo: 'Te lo recordaremos', quitarRecordatorio: 'Quitar recordatorio', sinEnlace: 'Enlace pendiente',
+    verGrabacion: 'Ver grabación', cargando: 'Cargando…',
   },
   en: {
     volverPortal: 'Back to portal',
@@ -40,11 +45,109 @@ const text = {
     chat: 'Chat', participantes: 'People',
     levantoMano: 'raised their hand', escribeMensaje: 'Write a message…',
     volverListado: 'Back to live classes',
+    hoy: 'TODAY', sinProximas: 'You have no scheduled live classes.', sinGrabaciones: 'No recordings yet.',
+    recordatorioActivo: 'We will remind you', quitarRecordatorio: 'Remove reminder', sinEnlace: 'Link pending',
+    verGrabacion: 'Watch recording', cargando: 'Loading…',
   },
 } as const;
 
+type Textos = (typeof text)['es'] | (typeof text)['en'];
+
+// Con sesión real: clases de los cursos inscritos o invitaciones a su correo
+// (mis_clases_vivo). "Unirse" abre el enlace real de la reunión; la sala con
+// chat de la maqueta queda solo para la demo.
+function ClasesVivoReales({ tab, language, t }: { tab: 'proximas' | 'grabaciones'; language: 'es' | 'en'; t: Textos }) {
+  const [clases, setClases] = useState<ClaseVivoEstudiante[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const recargar = useCallback(async () => {
+    const res = await cargarMisClasesVivo();
+    if (res.error) setError(res.error.message);
+    else setClases(res.data);
+  }, []);
+  useEffect(() => { void recargar(); }, [recargar]);
+
+  async function alternarRecordatorio(c: ClaseVivoEstudiante) {
+    const res = await cambiarRecordatorio(String(c.id), !c.recordatorio);
+    if (res.error) return setError(res.error.message);
+    setClases((cs) => cs?.map((x) => (x.id === c.id ? { ...x, recordatorio: !x.recordatorio } : x)) ?? null);
+  }
+
+  if (error) return <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</p>;
+  if (!clases) return <p className="text-sm text-ink/45">{t.cargando}</p>;
+
+  const hoyISO = new Date().toLocaleDateString('en-CA');
+  const dia = (iso: string) => (iso === hoyISO ? t.hoy
+    : new Date(`${iso}T12:00:00`).toLocaleDateString(language === 'es' ? 'es-ES' : 'en-US', { day: 'numeric', month: 'short' }).toUpperCase());
+
+  if (tab === 'grabaciones') {
+    const grabaciones = clases.filter((c) => c.grabacionUrl);
+    if (!grabaciones.length) return <p className="rounded-2xl border border-brand-100 bg-white p-6 text-center text-sm text-ink/45">{t.sinGrabaciones}</p>;
+    return (
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {grabaciones.map((g) => (
+          <a key={g.id} href={g.grabacionUrl ?? '#'} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-soft">
+            <div className="relative grid h-36 place-items-center bg-ink text-white/70">
+              <Play size={28} />
+              {g.grabacionDuracion && <span className="absolute bottom-2 right-2 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">{g.grabacionDuracion}</span>}
+            </div>
+            <div className="p-4">
+              <h3 className="text-sm font-semibold text-ink">{g.titulo}</h3>
+              <p className="text-xs text-ink/45">{g.profesional} · {dia(g.fecha)}</p>
+              <p className="mt-2 text-xs font-semibold text-brand-600 group-hover:underline">{t.verGrabacion} →</p>
+            </div>
+          </a>
+        ))}
+      </div>
+    );
+  }
+
+  const proximas = clases.filter((c) => c.estado !== 'finalizada' && (c.estado === 'vivo' || c.fecha >= hoyISO));
+  if (!proximas.length) return <p className="rounded-2xl border border-brand-100 bg-white p-6 text-center text-sm text-ink/45">{t.sinProximas}</p>;
+  return (
+    <div className="space-y-4">
+      {proximas.map((c) => {
+        const enVivo = c.estado === 'vivo';
+        return (
+          <div key={c.id} className={`flex flex-col gap-4 rounded-2xl border bg-white p-5 shadow-soft sm:flex-row sm:items-center ${enVivo ? 'border-rose-300' : 'border-brand-100'}`}>
+            <div className={`grid h-14 w-14 shrink-0 place-items-center rounded-2xl text-center leading-none ${enVivo || c.fecha === hoyISO ? 'bg-rose-50 text-rose-600' : 'bg-brand-50 text-brand-700'}`}>
+              <span className="text-xs font-bold">{dia(c.fecha)}</span>
+            </div>
+            <div className="flex-1">
+              <h3 className="font-display font-semibold text-ink">
+                {enVivo && <span className="mr-2 rounded-full bg-rose-600 px-2 py-0.5 align-middle text-[11px] font-semibold text-white"><span className="animate-pulse">●</span> {t.enVivo}</span>}
+                {c.titulo}
+              </h3>
+              <p className="text-sm text-ink/50">🕒 {c.hora} · {c.profesional} · {c.duracionMin} {t.min}</p>
+              {c.curso && <p className="mt-1 text-xs text-ink/45">{t.curso} {c.curso}</p>}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {c.enlace ? (
+                <a href={c.enlace} target="_blank" rel="noreferrer" className="whitespace-nowrap rounded-full bg-brand-gradient px-5 py-2.5 text-sm font-semibold text-white shadow-soft hover:opacity-90">
+                  {t.unirseAhora}
+                </a>
+              ) : (
+                <span className="text-xs text-ink/45">{t.sinEnlace}</span>
+              )}
+              {!enVivo && (
+                <button
+                  onClick={() => void alternarRecordatorio(c)}
+                  title={c.recordatorio ? t.quitarRecordatorio : undefined}
+                  className={`rounded-full border px-4 py-2 text-sm font-semibold ${c.recordatorio ? 'border-brand-300 bg-brand-50 text-brand-700' : 'border-brand-200 text-ink hover:bg-brand-50'}`}
+                >
+                  {c.recordatorio ? `✓ ${t.recordatorioActivo}` : t.recordarme}
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function LiveClassesPage() {
-  const { user } = useSiteAuth();
+  const { user, esSesionReal } = useSiteAuth();
   const { language } = useSiteLanguage();
   const t = text[language];
   const navItems = buildAulaVirtualNav(AULA_NAV_LABELS[language], ['vivo']);
@@ -102,7 +205,9 @@ export default function LiveClassesPage() {
             </button>
           </div>
 
-          {tab === 'proximas' ? (
+          {esSesionReal ? (
+            <ClasesVivoReales tab={tab} language={language} t={t} />
+          ) : tab === 'proximas' ? (
             <div className="space-y-4">
               {PROXIMAS_CLASES.map((c) =>
                 c.esHoy ? (

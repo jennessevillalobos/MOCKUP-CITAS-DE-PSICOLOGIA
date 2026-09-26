@@ -1,11 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import PortalLayout from '@/components/site/PortalLayout';
 import { AULA_NAV_LABELS, buildAulaVirtualNav } from '@/components/site/aulaVirtualNav';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
-import { CALIFICACIONES } from '@/data/gradesData';
+import { CALIFICACIONES, type Calificacion } from '@/data/gradesData';
+import { cargarMisCalificaciones } from '@/lib/api/cursosEstudiante';
 
 const text = {
   es: {
@@ -49,9 +50,31 @@ const chipCls: Record<string, string> = {
 };
 
 export default function GradesPage() {
-  const { user } = useSiteAuth();
+  const { user, esSesionReal } = useSiteAuth();
   const { language } = useSiteLanguage();
   const t = text[language];
+
+  // Con sesión real: una fila por evaluación de los cursos inscritos (nota en %).
+  const [reales, setReales] = useState<Calificacion[] | null>(null);
+  useEffect(() => {
+    if (!esSesionReal) return;
+    void cargarMisCalificaciones().then((res) => {
+      if (res.error) return setReales([]);
+      setReales(res.data.map((c) => ({
+        curso: { es: c.curso, en: c.curso },
+        evaluacion: { es: c.evaluacion, en: c.evaluacion },
+        nota: c.nota,
+        notaMax: 100,
+        estado: c.estado,
+        fecha: c.fecha ? {
+          es: new Date(c.fecha).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }),
+          en: new Date(c.fecha).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }),
+        } : null,
+        certificado: c.estado === 'aprobada',
+      })));
+    });
+  }, [esSesionReal]);
+  const CALIFS = useMemo(() => (esSesionReal ? reales ?? [] : CALIFICACIONES), [esSesionReal, reales]);
 
   const [vista, setVista] = useState<'lista' | 'certificado'>('lista');
   const [certIndex, setCertIndex] = useState<number | null>(null);
@@ -59,16 +82,16 @@ export default function GradesPage() {
 
   const navItems = buildAulaVirtualNav(AULA_NAV_LABELS[language], ['calificaciones']);
 
-  const cursos = useMemo(() => Array.from(new Set(CALIFICACIONES.map((c) => c.curso[language]))), [language]);
-  const lista = filtroCurso ? CALIFICACIONES.filter((c) => c.curso[language] === filtroCurso) : CALIFICACIONES;
+  const cursos = useMemo(() => Array.from(new Set(CALIFS.map((c) => c.curso[language]))), [CALIFS, language]);
+  const lista = filtroCurso ? CALIFS.filter((c) => c.curso[language] === filtroCurso) : CALIFS;
 
-  const aprobadas = CALIFICACIONES.filter((c) => c.estado === 'aprobada');
+  const aprobadas = CALIFS.filter((c) => c.estado === 'aprobada');
   const promedio = aprobadas.length
     ? Math.round(aprobadas.reduce((acc, c) => acc + ((c.nota || 0) / c.notaMax) * 100, 0) / aprobadas.length)
     : null;
-  const certificados = CALIFICACIONES.filter((c) => c.certificado).length;
+  const certificados = CALIFS.filter((c) => c.certificado).length;
 
-  const cert = certIndex !== null ? CALIFICACIONES[certIndex] : null;
+  const cert = certIndex !== null ? CALIFS[certIndex] : null;
   const nombreEstudiante = (user?.nombre || '').trim() || (language === 'es' ? 'Estudiante' : 'Student');
 
   function verCertificado(index: number) {
@@ -99,7 +122,7 @@ export default function GradesPage() {
             </div>
             <div className="rounded-3xl border border-brand-100 bg-white p-4 shadow-soft">
               <p className="text-xs text-ink/50">{t.evaluacionesAprobadas}</p>
-              <p className="font-display text-2xl font-semibold text-emerald-600">{aprobadas.length}/{CALIFICACIONES.length}</p>
+              <p className="font-display text-2xl font-semibold text-emerald-600">{aprobadas.length}/{CALIFS.length}</p>
             </div>
             <div className="rounded-3xl border border-brand-100 bg-white p-4 shadow-soft">
               <p className="text-xs text-ink/50">{t.certificadosObtenidos}</p>
@@ -128,12 +151,12 @@ export default function GradesPage() {
             </div>
             {lista.length === 0 ? (
               <div className="px-5 py-8 text-center text-sm text-ink/45">
-                {t.sinRegistros} <Link to="/aula-virtual/evaluacion" className="font-semibold text-brand-600 hover:underline">{t.irEvaluaciones}</Link>
+                {t.sinRegistros} <Link to={esSesionReal ? '/aula-virtual' : '/aula-virtual/evaluacion'} className="font-semibold text-brand-600 hover:underline">{t.irEvaluaciones}</Link>
               </div>
             ) : (
               <div className="divide-y divide-brand-50 text-sm">
                 {lista.map((c) => {
-                  const idxReal = CALIFICACIONES.indexOf(c);
+                  const idxReal = CALIFS.indexOf(c);
                   const pct = c.nota !== null ? Math.round((c.nota / c.notaMax) * 100) : null;
                   return (
                     <div key={idxReal} className="grid items-center gap-2 px-5 py-4 sm:grid-cols-12">
@@ -142,7 +165,7 @@ export default function GradesPage() {
                         {c.evaluacion[language]} {c.fecha && <span className="text-xs">· {c.fecha[language]}</span>}
                       </span>
                       <span className="col-span-2 font-semibold text-ink">
-                        {c.nota !== null ? <>{c.nota}/{c.notaMax} <span className="font-normal text-ink/45">({pct}%)</span></> : '—'}
+                        {c.nota === null ? '—' : c.notaMax === 100 ? `${c.nota}%` : <>{c.nota}/{c.notaMax} <span className="font-normal text-ink/45">({pct}%)</span></>}
                       </span>
                       <span className="col-span-2">
                         <span className={`rounded-full px-2 py-0.5 text-xs ${chipCls[c.estado]}`}>
@@ -180,7 +203,7 @@ export default function GradesPage() {
               <p className="mb-1 text-sm text-ink/70">{t.certCompleto}</p>
               <h2 className="mb-4 font-display text-xl font-semibold text-ink">{cert.curso[language]} · {cert.evaluacion[language]}</h2>
               <p className="mb-6 text-sm text-ink/70">
-                {t.certCon} <b>{cert.nota}/{cert.notaMax} ({Math.round(((cert.nota || 0) / cert.notaMax) * 100)}%)</b>
+                {t.certCon} <b>{cert.notaMax === 100 ? `${cert.nota}%` : `${cert.nota}/${cert.notaMax} (${Math.round(((cert.nota || 0) / cert.notaMax) * 100)}%)`}</b>
               </p>
               <p className="text-xs text-brand-600">{t.certEmitido} {cert.fecha ? cert.fecha[language] : '—'}</p>
             </div>

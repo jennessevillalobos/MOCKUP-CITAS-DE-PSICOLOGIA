@@ -218,3 +218,49 @@ export async function cargarEvaluacionEstudiante(evaluacionId: number): Promise<
   if (error) return fail(toServiceError(error));
   return ok(data as EvaluacionEstudiante);
 }
+
+// ── Calificaciones y clases en vivo (migración 032) ──
+
+export interface CalificacionEstudiante {
+  evaluacionId: number;
+  evaluacion: string;
+  cursoSlug: string;
+  curso: string;
+  // Mejor nota calificada (%), null si aún no hay.
+  nota: number | null;
+  estado: 'aprobada' | 'pendiente' | 'reprobada';
+  fecha: string | null;
+}
+
+export async function cargarMisCalificaciones(): Promise<Result<CalificacionEstudiante[]>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+
+  const { data, error } = await supabase.rpc('mis_calificaciones');
+  if (error) return fail(toServiceError(error));
+  return ok((data ?? []) as CalificacionEstudiante[]);
+}
+
+export interface ClaseVivoEstudiante {
+  id: number;
+  titulo: string;
+  fecha: string;
+  hora: string;
+  duracionMin: number;
+  enlace: string | null;
+  estado: 'programada' | 'vivo' | 'finalizada';
+  curso: string | null;
+  profesional: string | null;
+  grabacionUrl: string | null;
+  grabacionDuracion: string | null;
+  recordatorio: boolean;
+}
+
+export async function cargarMisClasesVivo(): Promise<Result<ClaseVivoEstudiante[]>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+
+  const { data, error } = await supabase.rpc('mis_clases_vivo');
+  if (error) return fail(toServiceError(error));
+  return ok((data ?? []) as ClaseVivoEstudiante[]);
+}
