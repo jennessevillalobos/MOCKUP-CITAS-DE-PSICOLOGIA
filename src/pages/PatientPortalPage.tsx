@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, CalendarDays, CreditCard, Bell, UserCog,
@@ -10,7 +10,8 @@ import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useMyAppointments, useMyPurchases } from '@/hooks/useSupabaseData';
 import { CITAS_PACIENTE, NOTIFICACIONES_PACIENTE, type CitaPaciente } from '@/data/patientPortalData';
-import { cancelarCita } from '@/lib/api/appointments';
+import { cancelAppointment } from '@/lib/api/edgeFunctions';
+import ReprogramarCitaPanel from '@/components/site/ReprogramarCitaPanel';
 
 
 
@@ -20,6 +21,8 @@ type Tab = 'dash' | 'citas' | 'detalle' | 'pagos' | 'notif';
 
 const text = {
   es: {
+    citaCancelada: 'Cita cancelada.', primeraSesion: 'Tu primera sesión te espera.',
+    sinProximas: 'No tienes citas próximas.', sinCitas: 'Todavía no tienes citas.',
     dashboard: 'Dashboard', aulaVirtual: 'Aula Virtual', misCitas: 'Mis citas', misPagos: 'Mis pagos', notificaciones: 'Notificaciones', miPerfil: 'Mi perfil',
     hola: 'Hola', resumen: 'Este es el resumen de tu bienestar.',
     proximaCita: 'Próxima cita', pagosPendientes: 'Pagos pendientes', sinSaldos: 'Sin saldos', sesionesCompletadas: 'Sesiones completadas', buenProgreso: '¡Buen progreso!',
@@ -39,6 +42,8 @@ const text = {
     proximoLabel: 'Sin próximas',
   },
   en: {
+    citaCancelada: 'Appointment cancelled.', primeraSesion: 'Your first session awaits.',
+    sinProximas: 'You have no upcoming appointments.', sinCitas: 'You have no appointments yet.',
     dashboard: 'Dashboard', aulaVirtual: 'Virtual Classroom', misCitas: 'My appointments', misPagos: 'My payments', notificaciones: 'Notifications', miPerfil: 'My profile',
     hola: 'Hi', resumen: "Here's your wellbeing summary.",
     proximaCita: 'Next session', pagosPendientes: 'Pending payments', sinSaldos: 'No balances', sesionesCompletadas: 'Completed sessions', buenProgreso: 'Great progress!',
@@ -59,6 +64,11 @@ const text = {
   },
 } as const;
 
+// USD con 2 decimales solo si hace falta (50 → "50", 37.5 → "37.50").
+function monto(valor: number) {
+  return Number.isInteger(valor) ? String(valor) : valor.toFixed(2);
+}
+
 const estadoEstilo: Record<CitaPaciente['estado'], string> = {
   confirmada: 'bg-emerald-50 text-emerald-600',
   agendada: 'bg-amber-50 text-amber-600',
@@ -74,7 +84,7 @@ const pagoEstadoEstilo: Record<string, string> = {
 };
 
 export default function PatientPortalPage() {
-  const { user, isRealAuth } = useSiteAuth();
+  const { user } = useSiteAuth();
   const { language } = useSiteLanguage();
   const navigate = useNavigate();
   const t = text[language];
@@ -82,16 +92,26 @@ export default function PatientPortalPage() {
   const [citaSeleccionada, setCitaSeleccionada] = useState<CitaPaciente | null>(null);
   const [paymentModalData, setPaymentModalData] = useState<{ isOpen: boolean; monto: number; concepto: string } | null>(null);
   const [isCanceling, setIsCanceling] = useState(false);
+  const [reprogramando, setReprogramando] = useState(false);
+  const [aviso, setAviso] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
 
   // Datos reales: citas (DB + wizard demo), pagos, notificaciones.
   // Mientras no haya sesión real, se muestran los datos demo.
-  const { data: citasOrigen, refresh: refreshCitas } = useMyAppointments();
+  const { data: citasOrigen, enBase, refresh: refreshCitas } = useMyAppointments();
   const { dbCompras, demoPagos } = useMyPurchases();
 
-  // Combinar citas: primero las reales (DB), luego las del wizard demo, luego los datos demo
+  // Con sesión real, solo las citas reales; en demo: las del wizard + los datos demo.
   const citasCombinadas = useMemo<CitaPaciente[]>(() => {
+    if (enBase) return citasOrigen.dbCitas;
     return [...citasOrigen.dbCitas, ...citasOrigen.agenda, ...CITAS_PACIENTE];
-  }, [citasOrigen]);
+  }, [citasOrigen, enBase]);
+  // Próximas primero (por fecha ascendente); con la base vienen de la más nueva a la más vieja.
+  const citasProximas = useMemo(
+    () => citasCombinadas
+      .filter((c) => c.estado !== 'completada' && c.estado !== 'cancelada')
+      .sort((a, b) => ((a.fechaISO ?? '') + a.hora).localeCompare((b.fechaISO ?? '') + b.hora)),
+    [citasCombinadas]
+  );
 
   // Combinar pagos: primero las compras reales, luego los pagos demo
   const pagosCombinados = useMemo(() => {
@@ -113,21 +133,28 @@ export default function PatientPortalPage() {
   const handleCancelar = async (citaId?: string) => {
     if (!window.confirm(t.confirmCancelar)) return;
     // Sin sesión real o sin id de base (citas demo/wizard), la cancelación es solo visual.
-    if (!isRealAuth || !citaId) {
-      alert('En modo demo solo es visual. En producción se cancelará la cita en la base de datos.');
+    if (!enBase || !citaId) {
       setCitaSeleccionada(prev => prev ? { ...prev, estado: 'cancelada' } : null);
       return;
     }
+    // La Edge Function aplica la política de reembolso y registra el historial.
     setIsCanceling(true);
-    const res = await cancelarCita(citaId);
+    const res = await cancelAppointment(citaId);
     setIsCanceling(false);
-    if (!res.error) {
-      await refreshCitas();
-      setTab('citas');
-    } else {
-      alert(res.error?.message || 'Error al cancelar la cita');
+    if (res.error) {
+      setAviso({ tipo: 'error', texto: res.error.message });
+      return;
     }
+    setAviso({ tipo: 'ok', texto: `${t.citaCancelada} ${res.data.mensaje_reembolso}` });
+    setCitaSeleccionada(prev => prev ? { ...prev, estado: 'cancelada' } : null);
+    await refreshCitas();
   };
+
+  async function reprogramacionLista(mensaje: string) {
+    setReprogramando(false);
+    setAviso({ tipo: 'ok', texto: mensaje });
+    await refreshCitas();
+  }
 
   const navItems: PortalNavItem[] = [
     { key: 'dash', label: { es: 'Dashboard', en: 'Dashboard' }, icon: LayoutDashboard, disponible: true },
@@ -139,12 +166,30 @@ export default function PatientPortalPage() {
   ];
 
   const primerNombre = (user?.nombre || '').trim().split(/\s+/)[0] || (language === 'es' ? 'Paciente' : 'Patient');
-  const saldoTotal = citasCombinadas.filter((c) => c.total > c.pagado).reduce((acc, c) => acc + (c.total - c.pagado), 0);
-  const proxima = citasCombinadas.find((c) => c.estado !== 'completada' && c.estado !== 'cancelada');
+  // Al recargar las citas (tras reprogramar/cancelar), el detalle muestra la versión nueva.
+  useEffect(() => {
+    setCitaSeleccionada((sel) => (sel?.id ? citasCombinadas.find((c) => c.id === sel.id) ?? sel : sel));
+  }, [citasCombinadas]);
+
+  // Saldo solo de citas vigentes (una cancelada no se cobra).
+  const saldoTotal = citasProximas.filter((c) => c.total > c.pagado).reduce((acc, c) => acc + (c.total - c.pagado), 0);
+  const proxima = citasProximas[0];
+  const sesionesCompletadas = citasCombinadas.filter((c) => c.estado === 'completada').length + (enBase ? 0 : 5);
 
   function abrirDetalle(cita: CitaPaciente) {
     setCitaSeleccionada(cita);
+    setReprogramando(false);
+    setAviso(null);
     setTab('detalle');
+  }
+
+  function reprogramar() {
+    if (!enBase || !citaSeleccionada?.id) {
+      navigate('/agendar');
+      return;
+    }
+    setAviso(null);
+    setReprogramando(true);
   }
 
   return (
@@ -157,7 +202,7 @@ export default function PatientPortalPage() {
         <div className="rounded-2xl bg-white/10 p-4 text-white">
           <p className="mb-1 text-sm font-semibold">{language === 'es' ? '¿Necesitas otra cita?' : 'Need another session?'}</p>
           <p className="mb-3 text-xs text-white/70">{language === 'es' ? 'Agenda en menos de 1 minuto.' : 'Book in under a minute.'}</p>
-          <Link to="/contacto" className="block rounded-full bg-white py-2 text-center text-sm font-semibold text-brand-800">
+          <Link to="/agendar" className="block rounded-full bg-white py-2 text-center text-sm font-semibold text-brand-800">
             {t.agendar}
           </Link>
         </div>
@@ -178,13 +223,13 @@ export default function PatientPortalPage() {
             </div>
             <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
               <p className="text-xs text-ink/50">{t.pagosPendientes}</p>
-              <p className="mt-2 font-display text-lg font-semibold text-ink">USD ${saldoTotal}</p>
+              <p className="mt-2 font-display text-lg font-semibold text-ink">USD ${monto(saldoTotal)}</p>
               <p className="text-xs text-amber-600">{saldoTotal > 0 ? t.saldoPendiente : t.sinSaldos}</p>
             </div>
             <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
               <p className="text-xs text-ink/50">{t.sesionesCompletadas}</p>
-              <p className="mt-2 font-display text-lg font-semibold text-ink">{citasCombinadas.filter((c) => c.estado === 'completada').length + 5}</p>
-              <p className="text-xs text-emerald-600">{t.buenProgreso}</p>
+              <p className="mt-2 font-display text-lg font-semibold text-ink">{sesionesCompletadas}</p>
+              <p className="text-xs text-emerald-600">{sesionesCompletadas > 0 ? t.buenProgreso : t.primeraSesion}</p>
             </div>
           </section>
 
@@ -195,7 +240,12 @@ export default function PatientPortalPage() {
                 <button onClick={() => setTab('citas')} className="text-sm font-semibold text-brand-600 hover:underline">{t.verTodas}</button>
               </div>
               <div className="space-y-3">
-                {citasCombinadas.filter((c) => c.estado !== 'completada' && c.estado !== 'cancelada').map((c, i) => (
+                {citasProximas.length === 0 && (
+                  <p className="rounded-2xl bg-brand-50/60 p-4 text-sm text-ink/50">
+                    {t.sinProximas} <Link to="/agendar" className="font-semibold text-brand-600 hover:underline">{t.agendar}</Link>
+                  </p>
+                )}
+                {citasProximas.map((c, i) => (
                   <div key={i} className="flex items-center gap-4 rounded-2xl bg-brand-50/60 p-3">
                     <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-brand-100 text-center leading-none text-brand-700">
                       <span className="text-xs font-bold">{c.dia}<br />{c.mes}</span>
@@ -215,7 +265,7 @@ export default function PatientPortalPage() {
               <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
                 <h2 className="mb-3 font-display text-lg font-semibold text-ink">{t.accesosRapidos}</h2>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <Link to="/contacto" className="rounded-2xl bg-brand-50 p-3 text-center hover:bg-brand-100">
+                  <Link to="/agendar" className="rounded-2xl bg-brand-50 p-3 text-center hover:bg-brand-100">
                     <CalendarDays className="mx-auto mb-1 text-brand-600" size={20} />
                     <span className="font-semibold text-ink">{t.agendar}</span>
                   </Link>
@@ -237,7 +287,7 @@ export default function PatientPortalPage() {
               {saldoTotal > 0 && (
                 <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm">
                   <p className="mb-1 flex items-center gap-1.5 font-semibold text-amber-700">⚠️ {t.saldoPendiente}</p>
-                  <p className="mb-3 text-xs text-ink/60">{t.tienesSaldo} <b className="text-ink">USD ${saldoTotal}</b>.</p>
+                  <p className="mb-3 text-xs text-ink/60">{t.tienesSaldo} <b className="text-ink">USD ${monto(saldoTotal)}</b>.</p>
                   <button onClick={() => setPaymentModalData({ isOpen: true, monto: saldoTotal, concepto: language === 'es' ? 'Saldo pendiente total' : 'Total balance due' })} className="rounded-full bg-brand-gradient px-4 py-2 text-xs font-bold text-white">{t.pagarAhora}</button>
                 </div>
               )}
@@ -253,6 +303,11 @@ export default function PatientPortalPage() {
             <p className="mt-1 text-sm text-ink/50">{t.tusCitasSub}</p>
           </div>
           <div className="space-y-3">
+            {citasCombinadas.length === 0 && (
+              <p className="rounded-3xl border border-brand-100 bg-white p-6 text-sm text-ink/50">
+                {t.sinCitas} <Link to="/agendar" className="font-semibold text-brand-600 hover:underline">{t.agendar}</Link>
+              </p>
+            )}
             {citasCombinadas.map((c, i) => (
               <div key={i} className="flex flex-col gap-4 rounded-3xl border border-brand-100 bg-white p-4 shadow-soft sm:flex-row sm:items-center">
                 <div className="grid h-14 w-14 shrink-0 place-items-center rounded-xl bg-brand-50 text-center leading-none text-brand-700">
@@ -290,8 +345,8 @@ export default function PatientPortalPage() {
               <div className="grid gap-4 text-sm sm:grid-cols-2">
                 <div><p className="text-xs text-ink/45">{t.fechaYHora}</p><p className="text-ink">{citaSeleccionada.fecha[language]} · {citaSeleccionada.hora}</p></div>
                 <div><p className="text-xs text-ink/45">{t.profesional}</p><p className="text-ink">{citaSeleccionada.profesional}</p></div>
-                <div><p className="text-xs text-ink/45">{t.modalidad}</p><p className="text-ink">{citaSeleccionada.modalidad}</p></div>
-                <div><p className="text-xs text-ink/45">{t.duracion}</p><p className="text-ink">50 min</p></div>
+                <div><p className="text-xs text-ink/45">{t.modalidad}</p><p className="text-ink">{citaSeleccionada.lugar ? `${citaSeleccionada.modalidad} · ${citaSeleccionada.lugar}` : citaSeleccionada.modalidad}</p></div>
+                <div><p className="text-xs text-ink/45">{t.duracion}</p><p className="text-ink">{citaSeleccionada.duracionMin ?? 50} min</p></div>
               </div>
               <div className="mt-6 flex flex-col gap-3 rounded-2xl bg-brand-50 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -306,9 +361,24 @@ export default function PatientPortalPage() {
                 </button>
               </div>
 
-              {(citaSeleccionada.estado === 'confirmada' || citaSeleccionada.estado === 'agendada') && (
+              {aviso && (
+                <p role={aviso.tipo === 'error' ? 'alert' : 'status'} className={`mt-6 rounded-2xl px-4 py-3 text-sm ${aviso.tipo === 'error' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                  {aviso.texto}
+                </p>
+              )}
+
+              {reprogramando && (
+                <ReprogramarCitaPanel
+                  cita={citaSeleccionada}
+                  language={language}
+                  onCerrar={() => setReprogramando(false)}
+                  onListo={(m) => void reprogramacionLista(m)}
+                />
+              )}
+
+              {(citaSeleccionada.estado === 'confirmada' || citaSeleccionada.estado === 'agendada') && !reprogramando && (
                 <div className="mt-8 flex flex-wrap gap-3 border-t border-brand-100 pt-6">
-                  <button onClick={() => navigate('/agendar')} className="rounded-full border border-brand-200 px-5 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition">
+                  <button onClick={reprogramar} className="rounded-full border border-brand-200 px-5 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-50 transition">
                     {t.reprogramarBtn}
                   </button>
                   <button onClick={() => handleCancelar(citaSeleccionada.id)} disabled={isCanceling} className="rounded-full border border-rose-200 px-5 py-2 text-sm font-semibold text-rose-500 hover:bg-rose-50 transition disabled:opacity-50">
@@ -320,13 +390,13 @@ export default function PatientPortalPage() {
             <aside className="rounded-3xl border border-brand-100 bg-white p-6 shadow-soft">
               <h2 className="mb-4 font-display text-lg font-semibold text-ink">{t.estadoPago}</h2>
               <dl className="space-y-2 border-b border-brand-50 pb-4 text-sm">
-                <div className="flex justify-between"><dt className="text-ink/50">{t.total}</dt><dd className="text-ink">USD ${citaSeleccionada.total}</dd></div>
-                <div className="flex justify-between"><dt className="text-ink/50">{t.abonado}</dt><dd className="text-emerald-600">USD ${citaSeleccionada.pagado}</dd></div>
-                <div className="flex justify-between"><dt className="text-ink/50">{t.saldo}</dt><dd className="font-semibold text-amber-600">USD ${citaSeleccionada.total - citaSeleccionada.pagado}</dd></div>
+                <div className="flex justify-between"><dt className="text-ink/50">{t.total}</dt><dd className="text-ink">USD ${monto(citaSeleccionada.total)}</dd></div>
+                <div className="flex justify-between"><dt className="text-ink/50">{t.abonado}</dt><dd className="text-emerald-600">USD ${monto(citaSeleccionada.pagado)}</dd></div>
+                <div className="flex justify-between"><dt className="text-ink/50">{t.saldo}</dt><dd className="font-semibold text-amber-600">USD ${monto(citaSeleccionada.total - citaSeleccionada.pagado)}</dd></div>
               </dl>
-              {citaSeleccionada.total > citaSeleccionada.pagado ? (
+              {citaSeleccionada.estado === 'cancelada' ? null : citaSeleccionada.total > citaSeleccionada.pagado ? (
                 <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-                  <span>{t.pagarSaldo} USD ${citaSeleccionada.total - citaSeleccionada.pagado}</span>
+                  <span>{t.pagarSaldo} USD ${monto(citaSeleccionada.total - citaSeleccionada.pagado)}</span>
                   <button 
                     onClick={() => setPaymentModalData({ isOpen: true, monto: citaSeleccionada.total - citaSeleccionada.pagado, concepto: `${language === 'es' ? 'Pago de saldo de cita' : 'Appointment balance payment'} ${citaSeleccionada.fecha}` })} 
                     className="rounded-full bg-amber-600 px-3 py-1.5 text-xs text-white hover:bg-amber-700 transition"

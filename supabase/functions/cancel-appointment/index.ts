@@ -140,11 +140,16 @@ Deno.serve(async (req) => {
   });
 
   // 9. Construir respuesta
+  // Montos en la base: unidad mínima (centavos).
+  const montoTexto = `${(montoReembolso / 100).toFixed(2).replace(/\.00$/, '')} ${cita.moneda ?? ''}`.trim();
   const mensajesReembolso: Record<PoliticaReembolso, string> = {
-    completo: `Se procesará un reembolso completo de ${montoReembolso} ${cita.moneda}.`,
-    parcial_50: `Se procesará un reembolso del 50% (${montoReembolso} ${cita.moneda}) por cancelación tardía.`,
+    completo: `Se procesará un reembolso completo de ${montoTexto}.`,
+    parcial_50: `Se procesará un reembolso del 50% (${montoTexto}) por cancelación tardía.`,
     sin_reembolso: 'No aplica reembolso por cancelación con menos de 24 horas de anticipación.',
   };
+  const mensajeReembolso = (cita.monto_abonado ?? 0) === 0
+    ? 'No tenías pagos registrados para esta cita, así que no hay nada que reembolsar.'
+    : mensajesReembolso[politica];
 
   return jsonOk({
     cita_id: body.cita_id,
@@ -152,6 +157,6 @@ Deno.serve(async (req) => {
     politica_reembolso: politica,
     monto_reembolso: montoReembolso,
     moneda: cita.moneda,
-    mensaje_reembolso: mensajesReembolso[politica],
+    mensaje_reembolso: mensajeReembolso,
   }, 200, requestId);
 });

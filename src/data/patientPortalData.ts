@@ -17,6 +17,14 @@ export interface CitaPaciente {
   // true solo para las que vienen del wizard público de reserva — permite
   // distinguirlas de los 3 registros de demostración de abajo si hiciera falta.
   origenReserva?: boolean;
+  // Solo en citas reales (Supabase): datos para reprogramar y mostrar el detalle.
+  fechaISO?: string;
+  duracionMin?: number;
+  profesionalId?: number;
+  servicioId?: number;
+  modalidadId?: number;
+  lugar?: string;
+  reprogramaciones?: number;
 }
 
 // Datos de demostración (no hay todavía un flujo real de reservas conectado

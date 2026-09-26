@@ -211,3 +211,39 @@ export async function createDownloadLink(
 ): Promise<Result<CreateDownloadLinkOutput>> {
   return callEdgeFunction<CreateDownloadLinkOutput>('create-download-link', { compra_id: compraId });
 }
+
+export interface CancelAppointmentOutput {
+  cita_id: string;
+  estado: string;
+  politica_reembolso: 'completo' | 'parcial_50' | 'sin_reembolso';
+  monto_reembolso: number;
+  moneda: string | null;
+  mensaje_reembolso: string;
+}
+
+/**
+ * Cancela una cita del paciente aplicando la política de reembolso por anticipación.
+ * Edge Function: `cancel-appointment`
+ */
+export async function cancelAppointment(citaId: string, motivo?: string): Promise<Result<CancelAppointmentOutput>> {
+  return callEdgeFunction<CancelAppointmentOutput>('cancel-appointment', { cita_id: citaId, motivo });
+}
+
+export interface RescheduleAppointmentOutput {
+  cita_id: string;
+  nueva_fecha: string;
+  nueva_hora: string;
+  reprogramaciones_usadas: number;
+  reprogramaciones_restantes: number;
+  mensaje: string;
+}
+
+/**
+ * Reprograma una cita del paciente (24 h de anticipación, máximo 2 cambios).
+ * Edge Function: `reschedule-appointment`
+ */
+export async function rescheduleAppointment(citaId: string, nuevaFecha: string, nuevaHora: string, motivo?: string): Promise<Result<RescheduleAppointmentOutput>> {
+  return callEdgeFunction<RescheduleAppointmentOutput>('reschedule-appointment', {
+    cita_id: citaId, nueva_fecha: nuevaFecha, nueva_hora: nuevaHora, motivo,
+  });
+}
