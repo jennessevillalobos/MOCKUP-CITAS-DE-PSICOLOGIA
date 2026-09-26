@@ -277,3 +277,23 @@ export async function submitEvaluation(
     evaluacion_id: evaluacionId, respuestas, tiempo_tomado_minutos: tiempoTomadoMinutos,
   });
 }
+
+export interface SendContactInput {
+  nombre: string;
+  correo: string;
+  telefono?: string;
+  asunto?: string;
+  mensaje: string;
+  origen: 'home' | 'contacto';
+  idioma: 'es' | 'en';
+  // Campo trampa anti-bots (debe llegar vacío).
+  sitio_web?: string;
+}
+
+/**
+ * Formulario de contacto: guarda el mensaje y lo reenvía por correo (Resend).
+ * Edge Function: `send-contact` (sin sesión).
+ */
+export async function sendContact(input: SendContactInput): Promise<Result<{ guardado: boolean; correo_enviado: boolean }>> {
+  return callEdgeFunction<{ guardado: boolean; correo_enviado: boolean }>('send-contact', input, { publica: true });
+}

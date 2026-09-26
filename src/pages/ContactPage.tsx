@@ -1,4 +1,6 @@
 import { useState, type FormEvent } from 'react';
+import { isSupabaseConfigured } from '@/lib/supabase/client';
+import { sendContact } from '@/lib/api/edgeFunctions';
 import {
   ArrowRight, Check, ChevronDown, Clock3, Instagram, Laptop, Linkedin, Mail,
   MapPin, MessageCircle, Phone, Youtube,
@@ -56,6 +58,9 @@ export default function ContactPage() {
   const [touched, setTouched] = useState(false);
   const [sending, setSending] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [errorEnvio, setErrorEnvio] = useState<string | null>(null);
+  // Campo trampa anti-bots (invisible para personas).
+  const [trampa, setTrampa] = useState('');
 
   const errors = {
     nombre: form.nombre.trim().length < 2,
@@ -66,11 +71,26 @@ export default function ContactPage() {
   };
   const isValid = !Object.values(errors).some(Boolean);
 
-  function submitForm(e: FormEvent<HTMLFormElement>) {
+  async function submitForm(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setTouched(true);
     if (!isValid) return;
     setSending(true);
+    setErrorEnvio(null);
+    // Con Supabase se guarda y se reenvía por correo (Resend); en demo se simula.
+    if (isSupabaseConfigured()) {
+      const res = await sendContact({
+        nombre: form.nombre, correo: form.correo, telefono: form.telefono, asunto: form.asunto, mensaje: form.mensaje,
+        origen: 'contacto', idioma: language, sitio_web: trampa,
+      });
+      setSending(false);
+      if (res.error) {
+        setErrorEnvio(res.error.message);
+        return;
+      }
+      setSubmitted(true);
+      return;
+    }
     window.setTimeout(() => {
       setSending(false);
       setSubmitted(true);
@@ -103,7 +123,8 @@ export default function ContactPage() {
         {/* Form + Info */}
         <section className="container-wide py-14 sm:py-16">
           <div className="grid gap-6 lg:grid-cols-[1.35fr_1fr]">
-            <form onSubmit={submitForm} noValidate className="rounded-[32px] border border-brand-100 bg-white p-7 shadow-soft sm:p-9">
+            <form onSubmit={(e) => void submitForm(e)} noValidate className="relative rounded-[32px] border border-brand-100 bg-white p-7 shadow-soft sm:p-9">
+              <input type="text" name="sitio_web" tabIndex={-1} autoComplete="off" aria-hidden="true" value={trampa} onChange={(e) => setTrampa(e.target.value)} className="absolute -left-[9999px] h-px w-px opacity-0" />
               <div className="grid gap-5 sm:grid-cols-2">
                 <label>
                   <span className="text-xs font-bold text-ink/70">{t.formName} *</span>
@@ -179,6 +200,7 @@ export default function ContactPage() {
                 {sending ? t.sending : submitted ? <><Check size={16} />{t.success}</> : t.send}
                 {!sending && !submitted && <ArrowRight size={15} />}
               </button>
+              {errorEnvio && <p role="alert" className="mt-4 rounded-2xl bg-rose-50 p-4 text-sm text-rose-600">{errorEnvio}</p>}
               {submitted && (
                 <div className="mt-4 flex items-center gap-2 rounded-2xl border border-brand-100 bg-brand-50/70 p-4 text-sm text-ink/70">
                   <Check size={16} className="shrink-0 text-brand-600" />
