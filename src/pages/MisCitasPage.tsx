@@ -349,13 +349,12 @@ export default function MisCitasPage() {
               {errorPago && <p role="alert" className="mb-3 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-600">{errorPago}</p>}
               <div className="space-y-2">
                 {pagosRevision.map((p) => {
-                  const cita = citas.find((c) => c.id === p.citaId);
                   return (
                     <div key={p.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-100 bg-white px-4 py-3 text-sm">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-semibold text-ink">{cita?.paciente ?? '—'}</p>
+                        <p className="truncate font-semibold text-ink">{p.alumno || '—'}</p>
                         <p className="truncate text-xs text-ink/50">
-                          {cita ? `${cita.servicio} · ${cita.fechaISO} ${cita.hora} · ` : ''}{t.referencia} {p.referencia || t.sinReferencia}
+                          {p.concepto} · {t.referencia} {p.referencia || t.sinReferencia}
                         </p>
                       </div>
                       <b className="text-amber-700">{p.moneda} ${p.monto.toLocaleString('es-ES', { maximumFractionDigits: 2 })}</b>

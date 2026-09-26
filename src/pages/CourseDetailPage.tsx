@@ -7,6 +7,7 @@ import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { CURSOS_PUBLICOS } from '@/data/coursesPageData';
+import InscripcionCursoBoton from '@/components/site/InscripcionCursoBoton';
 
 // Extended module/syllabus data per course
 const SYLLABI: Record<string, { title: { es: string; en: string }; lessons: number; free?: boolean }[]> = {
@@ -168,12 +169,12 @@ export default function CourseDetailPage() {
                     <span className="font-display text-2xl font-bold text-emerald-600">{t.free}</span>
                   )}
                 </div>
-                <Link
-                  to="/iniciar-sesion"
+                <InscripcionCursoBoton
+                  slug={course.key}
                   className="focus-ring flex h-12 w-full items-center justify-center gap-2 rounded-full bg-brand-gradient font-bold text-white shadow-soft transition hover:-translate-y-0.5 hover:shadow-lift"
                 >
                   {t.enroll} <ArrowRight size={16} />
-                </Link>
+                </InscripcionCursoBoton>
                 <div className="mt-5 space-y-2 border-t border-brand-100 pt-4 text-xs text-ink/60">
                   <p className="font-bold text-ink/80">{t.includes}</p>
                   {[t.certificate, t.lifetime, t.mobile].map((item) => (
@@ -245,12 +246,14 @@ export default function CourseDetailPage() {
                   </div>
                 ))}
               </div>
-              <Link
-                to="/iniciar-sesion"
-                className="focus-ring mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-full bg-brand-gradient text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5"
-              >
-                {t.enroll}
-              </Link>
+              <div className="mt-5">
+                <InscripcionCursoBoton
+                  slug={course.key}
+                  className="focus-ring flex h-11 w-full items-center justify-center gap-2 rounded-full bg-brand-gradient text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5"
+                >
+                  {t.enroll}
+                </InscripcionCursoBoton>
+              </div>
             </div>
           </div>
         </section>

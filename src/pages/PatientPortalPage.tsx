@@ -237,7 +237,7 @@ export default function PatientPortalPage() {
       }))
     : pagosCombinados.map((p) => ({ ...p, motivoRechazo: null as string | null }))), [enBase, pagosReales, pagosCombinados]);
   const totalPagado = pagosReales.filter((p) => p.estado === 'aprobado').reduce((a, p) => a + p.monto, 0);
-  const totalEnRevision = pagosReales.filter((p) => p.estado === 'pendiente').reduce((a, p) => a + p.monto, 0);
+  const totalEnRevision = pagosReales.filter((p) => p.estado === 'pendiente' && p.citaId).reduce((a, p) => a + p.monto, 0);
   // Lo que falta pagar: el saldo menos las transferencias ya reportadas (en revisión).
   const saldoPorPagar = enBase ? Math.max(0, saldoTotal - totalEnRevision) : saldoTotal;
   const enRevisionDeCita = (citaId?: string) =>

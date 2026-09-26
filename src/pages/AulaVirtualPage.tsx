@@ -1,10 +1,15 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ClipboardCheck, Trophy, Radio, Award } from 'lucide-react';
 import PortalLayout from '@/components/site/PortalLayout';
 import { AULA_NAV_LABELS, buildAulaVirtualNav } from '@/components/site/aulaVirtualNav';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
-import { CURSOS_INSCRITOS, CLASES_EN_VIVO_AULA, CUOTA_PENDIENTE, NOTIFICACIONES_AULA } from '@/data/aulaVirtualData';
+import { CURSOS_INSCRITOS, CLASES_EN_VIVO_AULA, CUOTA_PENDIENTE, NOTIFICACIONES_AULA, type CursoInscrito } from '@/data/aulaVirtualData';
+import { CURSOS_PUBLICOS } from '@/data/coursesPageData';
+import { cargarMisCursos } from '@/lib/api/cursosEstudiante';
+import { cargarNotificaciones } from '@/lib/api/notificaciones';
+import type { NotificacionInstructor } from '@/data/notificacionesInstructorData';
 
 const text = {
   es: {
@@ -20,6 +25,7 @@ const text = {
     avisoCuota: 'Una cuota vencida puede bloquear el acceso al contenido.',
     exploraMas: 'Explora más cursos', verCatalogo: 'Ver catálogo',
     verTodasNotif: 'Ver todas',
+    sinCursos: 'Aún no estás inscrito en ningún curso.', sinNotif: 'No tienes notificaciones.', cargando: 'Cargando tus cursos…',
   },
   en: {
     clases: 'Classes', evaluaciones: 'Assessments', calificaciones: 'Grades', progreso: 'Progress',
@@ -34,20 +40,46 @@ const text = {
     avisoCuota: 'An overdue installment may lock content access.',
     exploraMas: 'Explore more courses', verCatalogo: 'Catalog',
     verTodasNotif: 'All',
+    sinCursos: 'You are not enrolled in any course yet.', sinNotif: 'You have no notifications.', cargando: 'Loading your courses…',
   },
 } as const;
 
 export default function AulaVirtualPage() {
-  const { user } = useSiteAuth();
+  const { user, esSesionReal } = useSiteAuth();
   const { language } = useSiteLanguage();
   const t = text[language];
+
+  // Con sesión real: cursos inscritos y notificaciones de la base. Las clases
+  // en vivo y las cuotas del panel se conectan en P5; mientras tanto no se
+  // muestran datos de demostración a una cuenta real.
+  const [cursosReales, setCursosReales] = useState<CursoInscrito[] | null>(null);
+  const [notifReales, setNotifReales] = useState<NotificacionInstructor[]>([]);
+  useEffect(() => {
+    if (!esSesionReal) return;
+    void cargarMisCursos().then((res) => {
+      if (res.error) return setCursosReales([]);
+      setCursosReales(res.data.map((c) => ({
+        key: c.slug,
+        title: { es: c.nombre, en: CURSOS_PUBLICOS.find((p) => p.key === c.slug)?.title.en ?? c.nombre },
+        instructor: c.profesional ?? '',
+        leccionActual: c.completadas,
+        totalLecciones: c.totalClases,
+        progreso: c.porcentaje,
+        completado: c.totalClases > 0 && c.porcentaje >= 100,
+        image: c.imagen || CURSOS_PUBLICOS.find((p) => p.key === c.slug)?.image || '',
+      })));
+    });
+    void cargarNotificaciones().then((res) => { if (!res.error) setNotifReales(res.data.slice(0, 4)); });
+  }, [esSesionReal]);
+
+  const cursos = esSesionReal ? cursosReales ?? [] : CURSOS_INSCRITOS;
 
   const navItems = buildAulaVirtualNav(AULA_NAV_LABELS[language], ['dash']);
 
   const primerNombre = (user?.nombre || '').trim().split(/\s+/)[0] || (language === 'es' ? 'Paciente' : 'Patient');
-  const progresoPromedio = Math.round(CURSOS_INSCRITOS.reduce((acc, c) => acc + c.progreso, 0) / CURSOS_INSCRITOS.length);
-  const clasesCompletadas = CURSOS_INSCRITOS.reduce((acc, c) => acc + c.leccionActual, 0);
-  const certificados = CURSOS_INSCRITOS.filter((c) => c.completado).length;
+  const progresoPromedio = cursos.length ? Math.round(cursos.reduce((acc, c) => acc + c.progreso, 0) / cursos.length) : 0;
+  const clasesCompletadas = cursos.reduce((acc, c) => acc + c.leccionActual, 0);
+  const certificados = cursos.filter((c) => c.completado).length;
   const circ = 2 * Math.PI * 16;
 
   return (
@@ -94,7 +126,7 @@ export default function AulaVirtualPage() {
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="rounded-3xl border border-brand-100 bg-white p-4 shadow-soft">
           <p className="text-xs text-ink/50">{t.cursosInscritos}</p>
-          <p className="font-display text-2xl font-semibold text-ink">{CURSOS_INSCRITOS.length}</p>
+          <p className="font-display text-2xl font-semibold text-ink">{cursos.length}</p>
         </div>
         <div className="rounded-3xl border border-brand-100 bg-white p-4 shadow-soft">
           <p className="text-xs text-ink/50">{t.clasesCompletadas}</p>
@@ -106,7 +138,7 @@ export default function AulaVirtualPage() {
         </div>
         <Link to="/aula-virtual/pagos" className="rounded-3xl border border-brand-100 bg-white p-4 shadow-soft transition hover:border-brand-200">
           <p className="text-xs text-ink/50">{t.cuotasPorVencer}</p>
-          <p className="font-display text-2xl font-semibold text-amber-600">1</p>
+          <p className="font-display text-2xl font-semibold text-amber-600">{esSesionReal ? 0 : 1}</p>
         </Link>
       </section>
 
@@ -117,8 +149,15 @@ export default function AulaVirtualPage() {
               <h2 className="font-display text-lg font-semibold text-ink">{t.continuaAprendiendo}</h2>
               <Link to="/cursos" className="text-sm font-semibold text-brand-600 hover:underline">{t.verTodos}</Link>
             </div>
+            {esSesionReal && cursosReales === null && <p className="text-sm text-ink/45">{t.cargando}</p>}
+            {esSesionReal && cursosReales?.length === 0 && (
+              <div className="rounded-3xl border border-dashed border-brand-200 bg-white p-6 text-center text-sm text-ink/55">
+                <p className="mb-3">{t.sinCursos}</p>
+                <Link to="/cursos" className="inline-block rounded-full bg-brand-gradient px-5 py-2 text-xs font-semibold text-white">{t.verCatalogo}</Link>
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
-              {CURSOS_INSCRITOS.filter((c) => !c.completado).map((c) => (
+              {cursos.filter((c) => !c.completado).map((c) => (
                 <article key={c.key} className="overflow-hidden rounded-3xl border border-brand-100 bg-white shadow-soft">
                   <div className="relative">
                     <img src={c.image} alt={c.title[language]} className="h-28 w-full object-cover" />
@@ -131,7 +170,7 @@ export default function AulaVirtualPage() {
                       <div className="h-1.5 rounded-full bg-brand-gradient" style={{ width: `${c.progreso}%` }} />
                     </div>
                     <Link
-                      to="/aula-virtual/clase"
+                      to={esSesionReal ? `/aula-virtual/clase?curso=${c.key}` : '/aula-virtual/clase'}
                       className="block w-full rounded-full bg-brand-gradient py-2 text-center text-xs font-semibold text-white hover:opacity-90"
                     >
                       {t.continuar}
@@ -139,7 +178,7 @@ export default function AulaVirtualPage() {
                   </div>
                 </article>
               ))}
-              {CURSOS_INSCRITOS.filter((c) => c.completado).map((c) => (
+              {cursos.filter((c) => c.completado).map((c) => (
                 <article key={c.key} className="flex items-center gap-4 rounded-3xl border border-brand-100 bg-white p-4 shadow-soft sm:col-span-2">
                   <img src={c.image} alt={c.title[language]} className="h-16 w-24 shrink-0 rounded-2xl object-cover" />
                   <div className="min-w-0 flex-1">
@@ -155,7 +194,7 @@ export default function AulaVirtualPage() {
             </div>
           </div>
 
-          <div>
+          {!esSesionReal && <div>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="font-display text-lg font-semibold text-ink">{t.proximasClases}</h2>
               <Link to="/aula-virtual/vivo" className="text-sm font-semibold text-brand-600 hover:underline">{t.verTodos}</Link>
@@ -181,11 +220,11 @@ export default function AulaVirtualPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </div>}
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
+          {!esSesionReal && <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
             <h2 className="mb-3 font-display text-lg font-semibold text-ink">{t.cuotasTitle}</h2>
             <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
               <div className="mb-1 flex items-center justify-between">
@@ -198,7 +237,7 @@ export default function AulaVirtualPage() {
               </Link>
             </div>
             <p className="text-xs text-ink/45">⚠️ {t.avisoCuota}</p>
-          </div>
+          </div>}
 
           <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
             <div className="mb-3 flex items-center justify-between">
@@ -206,7 +245,19 @@ export default function AulaVirtualPage() {
               <Link to="/aula-virtual/notificaciones" className="text-xs font-semibold text-brand-600 hover:underline">{t.verTodasNotif}</Link>
             </div>
             <div className="space-y-3 text-sm">
-              {NOTIFICACIONES_AULA.map((n, i) => (
+              {esSesionReal && notifReales.length === 0 && <p className="text-xs text-ink/45">{t.sinNotif}</p>}
+              {esSesionReal && notifReales.map((n) => (
+                <Link key={n.id} to={n.link || '/aula-virtual/notificaciones'} className="-m-1 flex gap-3 rounded-xl p-1 hover:bg-brand-50/60">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-600">
+                    {n.tipo === 'evaluacion' ? <ClipboardCheck size={14} /> : n.tipo === 'vivo' ? <Radio size={14} /> : <Trophy size={14} />}
+                  </span>
+                  <div>
+                    <p className="text-ink">{n.texto[language]}</p>
+                    <p className="text-xs text-ink/40">{n.tiempo[language]}</p>
+                  </div>
+                </Link>
+              ))}
+              {!esSesionReal && NOTIFICACIONES_AULA.map((n, i) => (
                 <Link key={i} to="/aula-virtual/notificaciones" className="-m-1 flex gap-3 rounded-xl p-1 hover:bg-brand-50/60">
                   <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-50 text-brand-600">
                     {n.icono === 'evaluacion' ? <ClipboardCheck size={14} /> : n.icono === 'vivo' ? <Radio size={14} /> : <Trophy size={14} />}

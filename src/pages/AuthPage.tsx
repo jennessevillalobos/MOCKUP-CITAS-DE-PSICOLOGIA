@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Eye, EyeOff, KeyRound, ArrowLeft, Languages, UserRound, GraduationCap } from 'lucide-react';
 import { useSiteAuth, type SiteRole } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
@@ -50,11 +50,19 @@ function destinoDe(rol: SiteRole) {
   return rol === 'paciente' ? '/portal-paciente' : '/instructor';
 }
 
+// ?volver=/ruta interna (p. ej. la página de un curso). Se ignoran URLs
+// externas ("//dominio", "https://…") para no abrir redirecciones.
+function volverSeguro(valor: string | null) {
+  return valor && valor.startsWith('/') && !valor.startsWith('//') ? valor : null;
+}
+
 export default function AuthPage() {
   const { login, loginAs, isRealAuth, loginWithPassword, registerWithPassword } = useSiteAuth();
   const { language, setLanguage } = useSiteLanguage();
   const t = text[language];
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const volver = volverSeguro(searchParams.get('volver'));
 
   const [role, setRole] = useState<SiteRole>('paciente');
   const [view, setView] = useState<'login' | 'registro'>('login');
@@ -71,7 +79,7 @@ export default function AuthPage() {
   const [cargando, setCargando] = useState<'form' | 'google' | 'demo' | null>(null);
 
   function irAlPortal(rol: SiteRole) {
-    navigate(destinoDe(rol));
+    navigate((rol === 'paciente' && volver) || destinoDe(rol));
   }
 
   function handleGoogle() {

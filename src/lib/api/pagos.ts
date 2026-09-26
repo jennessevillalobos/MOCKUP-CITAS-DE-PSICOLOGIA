@@ -24,7 +24,12 @@ export interface PagoPaciente {
 
 export interface PagoEnRevision {
   id: string;
-  citaId: string;
+  // Transferencia de una cita o de un curso (migración 027).
+  tipo: 'cita' | 'curso';
+  citaId: string | null;
+  cursoId: number | null;
+  alumno: string;
+  concepto: string;
   monto: number;
   moneda: string;
   referencia: string | null;
@@ -45,24 +50,33 @@ export async function cargarMisPagos(): Promise<Result<PagoPaciente[]>> {
   return ok(((data ?? []) as PagoPaciente[]).map((p) => ({ ...p, monto: p.monto / 100 })));
 }
 
-// Sube el comprobante (si hay) y registra la transferencia en revisión.
-export async function reportarTransferencia(citaId: string, montoUsd: number, referencia: string, archivo: File | null): Promise<Result<string>> {
+// Sube el comprobante (si hay) a comprobantes/<uid>/ y devuelve su ruta.
+export async function subirComprobante(archivo: File | null): Promise<Result<string | null>> {
   const supabase = getSupabaseClient();
   if (!supabase || !isSupabaseConfigured()) return notConfigured();
 
   const { data: sesion } = await supabase.auth.getSession();
   const userId = sesion.session?.user.id;
   if (!userId) return fail({ code: 'no_session', message: 'Debes iniciar sesión para pagar.' });
+  if (!archivo) return ok(null);
 
-  let comprobante: string | null = null;
-  if (archivo) {
-    const extension = archivo.name.split('.').pop()?.toLowerCase() || 'jpg';
-    comprobante = `${userId}/${crypto.randomUUID()}.${extension}`;
-    const { error: subida } = await supabase.storage.from('comprobantes').upload(comprobante, archivo, { contentType: archivo.type });
-    if (subida) {
-      return fail({ code: 'storage_error', message: /size|exceed/i.test(subida.message) ? 'El comprobante supera 5 MB.' : 'No se pudo subir el comprobante (usa PDF, JPG o PNG).' });
-    }
+  const extension = archivo.name.split('.').pop()?.toLowerCase() || 'jpg';
+  const ruta = `${userId}/${crypto.randomUUID()}.${extension}`;
+  const { error } = await supabase.storage.from('comprobantes').upload(ruta, archivo, { contentType: archivo.type });
+  if (error) {
+    return fail({ code: 'storage_error', message: /size|exceed/i.test(error.message) ? 'El comprobante supera 5 MB.' : 'No se pudo subir el comprobante (usa PDF, JPG o PNG).' });
   }
+  return ok(ruta);
+}
+
+// Sube el comprobante (si hay) y registra la transferencia en revisión.
+export async function reportarTransferencia(citaId: string, montoUsd: number, referencia: string, archivo: File | null): Promise<Result<string>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+
+  const subida = await subirComprobante(archivo);
+  if (subida.error) return fail(subida.error);
+  const comprobante = subida.data;
 
   const { data, error } = await supabase.rpc('reportar_pago_transferencia', {
     p_cita_id: citaId,
