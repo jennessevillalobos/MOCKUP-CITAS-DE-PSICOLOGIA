@@ -264,3 +264,31 @@ export async function cargarMisClasesVivo(): Promise<Result<ClaseVivoEstudiante[
   if (error) return fail(toServiceError(error));
   return ok((data ?? []) as ClaseVivoEstudiante[]);
 }
+
+// ── Pagos de cursos (migración 033; sin sistema de cuotas por ahora) ──
+
+export interface PagoCursoEstudiante {
+  cursoId: number;
+  slug: string;
+  curso: string;
+  moneda: string;
+  precio: number;
+  pagado: number;
+  enRevision: number;
+  saldo: number;
+  inscrito: boolean;
+  pagos: { id: string; fecha: string; monto: number; estado: string; metodo: string; referencia: string | null; motivoRechazo: string | null }[];
+}
+
+export async function cargarMisPagosCursos(): Promise<Result<PagoCursoEstudiante[]>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+
+  const { data, error } = await supabase.rpc('mis_pagos_cursos');
+  if (error) return fail(toServiceError(error));
+  return ok(((data ?? []) as PagoCursoEstudiante[]).map((c) => ({
+    ...c,
+    precio: c.precio / 100, pagado: c.pagado / 100, enRevision: c.enRevision / 100, saldo: c.saldo / 100,
+    pagos: c.pagos.map((p) => ({ ...p, monto: p.monto / 100 })),
+  })));
+}
