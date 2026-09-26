@@ -34,9 +34,9 @@ export default function SiteFooter() {
               {language === 'es' ? 'Un espacio seguro para volver a encontrarte.' : 'A safe space to find your way back to yourself.'}
             </p>
             <div className="mt-7 flex gap-3">
-              <a href="/#top" aria-label="Instagram" className="grid h-10 w-10 place-items-center rounded-full border border-white/15 text-white/70 transition hover:bg-white/10 hover:text-white"><Instagram size={16} /></a>
-              <a href="/#top" aria-label="LinkedIn" className="grid h-10 w-10 place-items-center rounded-full border border-white/15 text-white/70 transition hover:bg-white/10 hover:text-white"><Linkedin size={16} /></a>
-              <a href="/#top" aria-label="Youtube" className="grid h-10 w-10 place-items-center rounded-full border border-white/15 text-white/70 transition hover:bg-white/10 hover:text-white"><Youtube size={16} /></a>
+              <a href={contactConfig.instagram} target="_blank" rel="noreferrer" aria-label="Instagram" className="grid h-10 w-10 place-items-center rounded-full border border-white/15 text-white/70 transition hover:bg-white/10 hover:text-white"><Instagram size={16} /></a>
+              <a href={contactConfig.linkedin} target="_blank" rel="noreferrer" aria-label="LinkedIn" className="grid h-10 w-10 place-items-center rounded-full border border-white/15 text-white/70 transition hover:bg-white/10 hover:text-white"><Linkedin size={16} /></a>
+              <a href={contactConfig.youtube} target="_blank" rel="noreferrer" aria-label="Youtube" className="grid h-10 w-10 place-items-center rounded-full border border-white/15 text-white/70 transition hover:bg-white/10 hover:text-white"><Youtube size={16} /></a>
             </div>
           </div>
           <FooterColumn title={t.footerNav} links={t.nav} />

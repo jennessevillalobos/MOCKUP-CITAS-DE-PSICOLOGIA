@@ -236,9 +236,9 @@ export default function ContactPage() {
               <div className="rounded-[28px] border border-brand-100 bg-white p-6 shadow-soft">
                 <h2 className="text-sm font-bold text-ink">{t.social}</h2>
                 <div className="mt-4 flex gap-3">
-                  <a href="#" aria-label="Instagram" className="grid h-10 w-10 place-items-center rounded-full border border-brand-100 text-ink/60 transition hover:bg-brand-50 hover:text-brand-600"><Instagram size={16} /></a>
-                  <a href="#" aria-label="LinkedIn" className="grid h-10 w-10 place-items-center rounded-full border border-brand-100 text-ink/60 transition hover:bg-brand-50 hover:text-brand-600"><Linkedin size={16} /></a>
-                  <a href="#" aria-label="Youtube" className="grid h-10 w-10 place-items-center rounded-full border border-brand-100 text-ink/60 transition hover:bg-brand-50 hover:text-brand-600"><Youtube size={16} /></a>
+                  <a href={contactConfig.instagram} target="_blank" rel="noreferrer" aria-label="Instagram" className="grid h-10 w-10 place-items-center rounded-full border border-brand-100 text-ink/60 transition hover:bg-brand-50 hover:text-brand-600"><Instagram size={16} /></a>
+                  <a href={contactConfig.linkedin} target="_blank" rel="noreferrer" aria-label="LinkedIn" className="grid h-10 w-10 place-items-center rounded-full border border-brand-100 text-ink/60 transition hover:bg-brand-50 hover:text-brand-600"><Linkedin size={16} /></a>
+                  <a href={contactConfig.youtube} target="_blank" rel="noreferrer" aria-label="Youtube" className="grid h-10 w-10 place-items-center rounded-full border border-brand-100 text-ink/60 transition hover:bg-brand-50 hover:text-brand-600"><Youtube size={16} /></a>
                 </div>
               </div>
             </aside>
