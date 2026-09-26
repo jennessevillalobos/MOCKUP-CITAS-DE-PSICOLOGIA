@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import type { CitaEstado } from '@/data/admin/agendaData';
 import { AGENDA_INSTRUCTOR_HOY, CITAS_INSTRUCTOR_DEMO, NOTAS_PACIENTE_DEMO, type CitaInstructor, type NotaPaciente } from '@/data/citasInstructorData';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
+import { sesionProfesionalProbable } from '@/lib/supabase/sesionLocal';
 import { cargarPerfil } from '@/lib/api/perfil';
 import { cargarCitasProfesional, actualizarCita, crearNotaPaciente } from '@/lib/api/citasProfesional';
 
@@ -59,10 +60,14 @@ function nextCitaId() {
 }
 
 export function InstructorAgendaProvider({ children }: { children: ReactNode }) {
-  const [citas, setCitas] = useState<CitaInstructor[]>(() => readStored()?.citas ?? CITAS_INSTRUCTOR_DEMO);
-  const [notas, setNotas] = useState<NotaPaciente[]>(() => readStored()?.notas ?? NOTAS_PACIENTE_DEMO);
+  // Con una sesión real de profesional guardada en el navegador se arranca
+  // vacío y "cargando" (no con el demo); si al validar no lo es, vuelve al demo.
+  // Mientras tanto no se guarda nada en localStorage.
+  const [esperandoBase, setEsperandoBase] = useState(sesionProfesionalProbable);
+  const [citas, setCitas] = useState<CitaInstructor[]>(() => (sesionProfesionalProbable() ? [] : readStored()?.citas ?? CITAS_INSTRUCTOR_DEMO));
+  const [notas, setNotas] = useState<NotaPaciente[]>(() => (sesionProfesionalProbable() ? [] : readStored()?.notas ?? NOTAS_PACIENTE_DEMO));
   const [profesionalId, setProfesionalId] = useState<number | null>(null);
-  const [cargando, setCargando] = useState(false);
+  const [cargando, setCargando] = useState(esperandoBase);
   const [errorCitas, setErrorCitas] = useState<string | null>(null);
   const pacientePorCorreo = useRef<Record<string, string>>({});
   const citasRef = useRef(citas);
@@ -71,9 +76,24 @@ export function InstructorAgendaProvider({ children }: { children: ReactNode }) 
 
   // Si la sesión real es de un profesional, sus citas y notas salen de la base.
   // Pacientes, visitantes de /agendar y el modo demo siguen con localStorage.
+  const esperandoRef = useRef(esperandoBase);
+  const volverADemo = useCallback(() => {
+    if (!esperandoRef.current) return;
+    esperandoRef.current = false;
+    const guardado = readStored();
+    setCitas(guardado?.citas ?? CITAS_INSTRUCTOR_DEMO);
+    setNotas(guardado?.notas ?? NOTAS_PACIENTE_DEMO);
+    setCargando(false);
+    setEsperandoBase(false);
+  }, []);
+
   const cargarDesdeBase = useCallback(async (esVigente: () => boolean = () => true) => {
     const perfil = await cargarPerfil();
-    if (!esVigente() || perfil.error || !perfil.data?.profesionalId) return;
+    if (!esVigente()) return;
+    if (perfil.error || !perfil.data?.profesionalId) {
+      volverADemo();
+      return;
+    }
     setCargando(true);
     const res = await cargarCitasProfesional(perfil.data.profesionalId, perfil.data.nombre ?? '');
     if (!esVigente()) return;
@@ -86,7 +106,7 @@ export function InstructorAgendaProvider({ children }: { children: ReactNode }) 
     setProfesionalId(perfil.data.profesionalId);
     setCitas(res.data.citas);
     setNotas(res.data.notas);
-  }, []);
+  }, [volverADemo]);
 
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
@@ -104,13 +124,13 @@ export function InstructorAgendaProvider({ children }: { children: ReactNode }) 
   // estado, sin necesidad de un provider global montado en toda la app.
   // Con la base no se toca: los datos reales no se mezclan con los de demo.
   useEffect(() => {
-    if (enBase) return;
+    if (enBase || esperandoBase) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ citas, notas }));
     } catch {
       // localStorage no disponible; los cambios siguen vivos en memoria durante esta visita.
     }
-  }, [citas, notas, enBase]);
+  }, [citas, notas, enBase, esperandoBase]);
 
   // Aplica un cambio en pantalla y, con la base, lo guarda; si falla se revierte.
   const cambiarCita = useCallback(

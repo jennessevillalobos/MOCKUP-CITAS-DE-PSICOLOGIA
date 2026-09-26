@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { INTENTOS_DEMO, type IntentoEvaluacion } from '@/data/evaluacionesInstructorData';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
+import { sesionProfesionalProbable } from '@/lib/supabase/sesionLocal';
 import { cargarPerfil } from '@/lib/api/perfil';
 import { cargarIntentos, calificarRespuesta, publicarCalificacionIntento } from '@/lib/api/calificaciones';
 
@@ -29,19 +30,35 @@ interface InstructorGradingContextValue {
 const InstructorGradingContext = createContext<InstructorGradingContextValue | undefined>(undefined);
 
 export function InstructorGradingProvider({ children }: { children: ReactNode }) {
-  const [intentos, setIntentos] = useState<IntentoEvaluacion[]>(() => readStored() ?? INTENTOS_DEMO);
+  // Con una sesión real de profesional guardada en el navegador se arranca
+  // vacío y "cargando" (no con el demo); si al validar no lo es, vuelve al demo.
+  // Mientras tanto no se guarda nada en localStorage.
+  const [esperandoBase, setEsperandoBase] = useState(sesionProfesionalProbable);
+  const [intentos, setIntentos] = useState<IntentoEvaluacion[]>(() => (sesionProfesionalProbable() ? [] : readStored() ?? INTENTOS_DEMO));
   const [enBase, setEnBase] = useState(false);
   const [errorCalificacion, setErrorCalificacion] = useState<string | null>(null);
   const intentosRef = useRef(intentos);
   intentosRef.current = intentos;
 
   // Con sesión real de un profesional, los intentos salen de sus cursos en la base.
+  const esperandoRef = useRef(esperandoBase);
+  const volverADemo = useCallback(() => {
+    if (!esperandoRef.current) return;
+    esperandoRef.current = false;
+    setIntentos(readStored() ?? INTENTOS_DEMO);
+    setEsperandoBase(false);
+  }, []);
+
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
     let cancelado = false;
     (async () => {
       const perfil = await cargarPerfil();
-      if (cancelado || perfil.error || !perfil.data?.profesionalId) return;
+      if (cancelado) return;
+      if (perfil.error || !perfil.data?.profesionalId) {
+        volverADemo();
+        return;
+      }
       const res = await cargarIntentos();
       if (cancelado) return;
       if (res.error) {
@@ -52,19 +69,19 @@ export function InstructorGradingProvider({ children }: { children: ReactNode })
       setIntentos(res.data);
     })();
     return () => { cancelado = true; };
-  }, []);
+  }, [volverADemo]);
 
   // Mismo patrón que los demás contextos del instructor: en modo demo se
   // sincroniza a localStorage en cada cambio, así el Dashboard y
   // "Evaluaciones" (montados por separado al navegar) ven el mismo estado.
   useEffect(() => {
-    if (enBase) return;
+    if (enBase || esperandoBase) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(intentos));
     } catch {
       // localStorage no disponible; los cambios siguen vivos en memoria durante esta visita.
     }
-  }, [intentos, enBase]);
+  }, [intentos, enBase, esperandoBase]);
 
   // Aplica el cambio en pantalla y, con la base, lo guarda; si falla se revierte.
   const aplicar = useCallback((intentoId: string, cambio: (i: IntentoEvaluacion) => IntentoEvaluacion, guardar: () => Promise<{ error: { message: string } | null }>) => {

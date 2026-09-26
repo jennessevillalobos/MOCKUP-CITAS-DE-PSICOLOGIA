@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { CLASES_VIVO_DEMO, HOY_VIVO, type ClaseEnVivo, type DestinatarioTipo } from '@/data/clasesVivoInstructorData';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
+import { sesionProfesionalProbable } from '@/lib/supabase/sesionLocal';
 import { cargarPerfil } from '@/lib/api/perfil';
 import {
   cargarClasesVivo, crearClaseVivo, actualizarClaseVivo, cambiarRecordatorio, idCursoPorSlug, type DatosClaseVivo,
@@ -64,7 +65,11 @@ function nextId() {
 }
 
 export function InstructorLiveClassesProvider({ children }: { children: ReactNode }) {
-  const [clases, setClases] = useState<ClaseEnVivo[]>(() => readStored() ?? CLASES_VIVO_DEMO);
+  // Con una sesión real de profesional guardada en el navegador se arranca
+  // vacío y "cargando" (no con el demo); si al validar no lo es, vuelve al demo.
+  // Mientras tanto no se guarda nada en localStorage.
+  const [esperandoBase, setEsperandoBase] = useState(sesionProfesionalProbable);
+  const [clases, setClases] = useState<ClaseEnVivo[]>(() => (sesionProfesionalProbable() ? [] : readStored() ?? CLASES_VIVO_DEMO));
   const [recordatoriosColegas, setRecordatoriosColegas] = useState<string[]>([]);
   const [profesional, setProfesional] = useState<{ id: number; nombre: string } | null>(null);
   const [errorClases, setErrorClases] = useState<string | null>(null);
@@ -73,12 +78,24 @@ export function InstructorLiveClassesProvider({ children }: { children: ReactNod
   const enBase = profesional !== null;
 
   // Con sesión real de un profesional, sus clases y las de sus colegas salen de la base.
+  const esperandoRef = useRef(esperandoBase);
+  const volverADemo = useCallback(() => {
+    if (!esperandoRef.current) return;
+    esperandoRef.current = false;
+    setClases(readStored() ?? CLASES_VIVO_DEMO);
+    setEsperandoBase(false);
+  }, []);
+
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
     let cancelado = false;
     (async () => {
       const perfil = await cargarPerfil();
-      if (cancelado || perfil.error || !perfil.data?.profesionalId) return;
+      if (cancelado) return;
+      if (perfil.error || !perfil.data?.profesionalId) {
+        volverADemo();
+        return;
+      }
       const res = await cargarClasesVivo();
       if (cancelado) return;
       if (res.error) {
@@ -95,19 +112,19 @@ export function InstructorLiveClassesProvider({ children }: { children: ReactNod
       setRecordatoriosColegas(res.data.filter((c) => c.recordarme).map((c) => c.id));
     })();
     return () => { cancelado = true; };
-  }, []);
+  }, [volverADemo]);
 
   // Igual que InstructorAgendaContext/InstructorCoursesContext: en modo demo
   // se sincroniza a localStorage en cada cambio, así el Dashboard y "Clases en
   // vivo" (montados por separado al navegar) siempre ven el mismo estado.
   useEffect(() => {
-    if (enBase) return;
+    if (enBase || esperandoBase) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(clases));
     } catch {
       // localStorage no disponible; los cambios siguen vivos en memoria durante esta visita.
     }
-  }, [clases, enBase]);
+  }, [clases, enBase, esperandoBase]);
 
   // Aplica el cambio en pantalla y, con la base, lo guarda; si falla se revierte.
   const aplicar = useCallback((id: string, cambio: Partial<ClaseEnVivo>, guardar: () => Promise<{ error: { message: string } | null }>) => {

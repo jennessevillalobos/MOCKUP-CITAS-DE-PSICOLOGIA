@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import type { ModuloBuilder } from '@/data/courseBuilderData';
 import { CURSOS_INFO_DEMO, CURSOS_META, MODULOS_POR_CURSO, type CursoBuilderInfo, type CursoInstructorMeta } from '@/data/instructorCoursesData';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
+import { sesionProfesionalProbable } from '@/lib/supabase/sesionLocal';
 import { cargarPerfil } from '@/lib/api/perfil';
 import { cargarMisCursos, guardarInfoCurso, guardarEstructuraCurso, crearCursoBorrador } from '@/lib/api/cursosProfesional';
 
@@ -61,11 +62,15 @@ function metaDesde(key: string, modulos: ModuloBuilder[], estudiantes: number, i
 }
 
 export function InstructorCoursesProvider({ children }: { children: ReactNode }) {
-  const [cursos, setCursos] = useState<Record<string, CursoBuilderInfo>>(() => readStored()?.info ?? CURSOS_INFO_DEMO);
-  const [modulosPorCurso, setModulosPorCurso] = useState<Record<string, ModuloBuilder[]>>(() => readStored()?.modulos ?? MODULOS_POR_CURSO);
-  const [metaCursos, setMetaCursos] = useState<CursoInstructorMeta[]>(CURSOS_META);
+  // Con una sesión real de profesional guardada en el navegador se arranca
+  // vacío y "cargando" (no con el demo); si al validar no lo es, vuelve al demo.
+  // Mientras tanto no se guarda nada en localStorage.
+  const [esperandoBase, setEsperandoBase] = useState(sesionProfesionalProbable);
+  const [cursos, setCursos] = useState<Record<string, CursoBuilderInfo>>(() => (sesionProfesionalProbable() ? {} : readStored()?.info ?? CURSOS_INFO_DEMO));
+  const [modulosPorCurso, setModulosPorCurso] = useState<Record<string, ModuloBuilder[]>>(() => (sesionProfesionalProbable() ? {} : readStored()?.modulos ?? MODULOS_POR_CURSO));
+  const [metaCursos, setMetaCursos] = useState<CursoInstructorMeta[]>(() => (sesionProfesionalProbable() ? [] : CURSOS_META));
   const [profesionalId, setProfesionalId] = useState<number | null>(null);
-  const [cargando, setCargando] = useState(false);
+  const [cargando, setCargando] = useState(esperandoBase);
   const [estadoGuardado, setEstadoGuardado] = useState<EstadoGuardadoCursos>('guardado');
   const [errorCursos, setErrorCursos] = useState<string | null>(null);
   const idPorKey = useRef<Record<string, number>>({});
@@ -73,13 +78,29 @@ export function InstructorCoursesProvider({ children }: { children: ReactNode })
   const pendientes = useRef<Record<string, { info?: Partial<CursoBuilderInfo>; modulos?: ModuloBuilder[]; timer?: number }>>({});
   const enBase = profesionalId !== null;
 
+  const esperandoRef = useRef(esperandoBase);
+  const volverADemo = useCallback(() => {
+    if (!esperandoRef.current) return;
+    esperandoRef.current = false;
+    const guardado = readStored();
+    setCursos(guardado?.info ?? CURSOS_INFO_DEMO);
+    setModulosPorCurso(guardado?.modulos ?? MODULOS_POR_CURSO);
+    setMetaCursos(CURSOS_META);
+    setCargando(false);
+    setEsperandoBase(false);
+  }, []);
+
   // Con sesión real de un profesional, sus cursos salen de la base.
   useEffect(() => {
     if (!isSupabaseConfigured()) return;
     let cancelado = false;
     (async () => {
       const perfil = await cargarPerfil();
-      if (cancelado || perfil.error || !perfil.data?.profesionalId) return;
+      if (cancelado) return;
+      if (perfil.error || !perfil.data?.profesionalId) {
+        volverADemo();
+        return;
+      }
       setCargando(true);
       const res = await cargarMisCursos();
       if (cancelado) return;
@@ -102,18 +123,18 @@ export function InstructorCoursesProvider({ children }: { children: ReactNode })
       setMetaCursos(res.data.map((c, i) => metaDesde(c.key, c.modulos, c.estudiantes, i)));
     })();
     return () => { cancelado = true; };
-  }, []);
+  }, [volverADemo]);
 
   // Modo demo: se sincroniza a localStorage en cada cambio, así "Mis cursos"
   // y el Constructor (montados por separado al navegar) ven el mismo estado.
   useEffect(() => {
-    if (enBase) return;
+    if (enBase || esperandoBase) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ info: cursos, modulos: modulosPorCurso }));
     } catch {
       // localStorage no disponible; los cambios siguen vivos en memoria durante esta visita.
     }
-  }, [cursos, modulosPorCurso, enBase]);
+  }, [cursos, modulosPorCurso, enBase, esperandoBase]);
 
   // Las lecciones y módulos de la lista se recalculan al editar el árbol.
   useEffect(() => {
