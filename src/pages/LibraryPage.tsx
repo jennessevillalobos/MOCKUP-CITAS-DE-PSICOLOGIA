@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ArrowLeft, Play, Search, Lock, ShieldCheck, ChevronLeft, ChevronRight, Minus, Plus, Bookmark, Loader2
 } from 'lucide-react';
@@ -9,6 +9,8 @@ import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { VIDEOS_COMPRADOS, LIBROS_COMPRADOS } from '@/data/libraryData';
 import { createDownloadLink } from '@/lib/api/edgeFunctions';
 import { useDialogo } from '@/context/DialogoContext';
+import { Link } from 'react-router-dom';
+import { cargarMiBiblioteca, urlArchivoProducto, type ItemBiblioteca } from '@/lib/api/productosEstudiante';
 
 type Vista = 'lista' | 'video' | 'libro';
 type Tab = 'videos' | 'libros';
@@ -26,6 +28,8 @@ const text = {
     acceso: 'Acceso', deVida: 'De por vida',
     descargaBloqueada: 'Descarga no permitida', descargarComprobante: 'Descargar comprobante de compra',
     pagina: 'Página',
+    descargar: 'Descargar', archivoPronto: 'Archivo disponible pronto', cargando: 'Cargando tu biblioteca…',
+    sinVideos: 'Aún no compraste videos.', sinLibros: 'Aún no compraste libros.', irTienda: 'Ir a la Tienda',
   },
   en: {
     volverPortal: 'Back to portal',
@@ -39,11 +43,88 @@ const text = {
     acceso: 'Access', deVida: 'Lifetime',
     descargaBloqueada: 'Download disabled', descargarComprobante: 'Download receipt',
     pagina: 'Page',
+    descargar: 'Download', archivoPronto: 'File available soon', cargando: 'Loading your library…',
+    sinVideos: 'You have not bought any videos yet.', sinLibros: 'You have not bought any books yet.', irTienda: 'Go to the Store',
   },
 } as const;
 
+type Textos = (typeof text)['es'] | (typeof text)['en'];
+
+// Con sesión real: compras reales (mi_biblioteca). Los archivos se abren con
+// un enlace temporal del bucket privado `productos`.
+function BibliotecaReal({ tab, busqueda, t, language }: { tab: Tab; busqueda: string; t: Textos; language: 'es' | 'en' }) {
+  const [items, setItems] = useState<ItemBiblioteca[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void cargarMiBiblioteca().then((res) => (res.error ? setError(res.error.message) : setItems(res.data)));
+  }, []);
+
+  async function abrir(item: ItemBiblioteca, descargar: boolean) {
+    if (!item.archivo) return;
+    // La pestaña se abre antes del await para que el navegador no la bloquee.
+    const ventana = descargar ? null : window.open('', '_blank');
+    const res = await urlArchivoProducto(item.archivo, descargar);
+    if (res.error) {
+      ventana?.close();
+      setError(res.error.message);
+      return;
+    }
+    if (ventana) ventana.location.href = res.data;
+    else window.location.href = res.data;
+  }
+
+  if (error) return <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{error}</p>;
+  if (!items) return <p className="text-sm text-ink/45">{t.cargando}</p>;
+
+  const lista = items
+    .filter((i) => (tab === 'videos' ? i.tipo === 'video' : i.tipo !== 'video'))
+    .filter((i) => i.titulo.toLowerCase().includes(busqueda.toLowerCase()));
+  if (!lista.length) {
+    return (
+      <div className="rounded-3xl border border-dashed border-brand-200 bg-white p-6 text-center text-sm text-ink/55">
+        <p className="mb-3">{tab === 'videos' ? t.sinVideos : t.sinLibros}</p>
+        <Link to="/tienda" className="inline-block rounded-full bg-brand-gradient px-5 py-2 text-xs font-semibold text-white">{t.irTienda}</Link>
+      </div>
+    );
+  }
+  const fecha = (iso: string) => new Date(iso).toLocaleDateString(language === 'es' ? 'es-ES' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  return (
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {lista.map((i) => (
+        <article key={i.compraId} className="overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-soft">
+          <div className="grid h-32 place-items-center bg-brand-gradient text-4xl text-white">
+            {i.portada ? <img src={i.portada} alt="" className="h-full w-full object-cover" /> : i.tipo === 'video' ? '🎬' : '📘'}
+          </div>
+          <div className="p-4">
+            <h3 className="text-sm font-semibold text-ink">{i.titulo}</h3>
+            <p className="mb-3 text-xs text-ink/45">{i.autora} · {t.comprado2} {fecha(i.fecha)}{i.monto !== null && ` · USD $${i.monto}`}</p>
+            {i.archivo ? (
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => void abrir(i, false)} className="rounded-full bg-brand-gradient px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90">
+                  {i.tipo === 'video' ? t.ver : t.leer}
+                </button>
+                {i.descargaPermitida ? (
+                  <button onClick={() => void abrir(i, true)} className="rounded-full border border-brand-200 px-4 py-1.5 text-xs font-semibold text-ink hover:bg-brand-50">
+                    {t.descargar}
+                  </button>
+                ) : (
+                  <span className="flex items-center gap-1 text-[11px] text-ink/40"><Lock size={11} /> {t.descargaBloqueada}</span>
+                )}
+              </div>
+            ) : (
+              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">{t.archivoPronto}</span>
+            )}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 export default function LibraryPage() {
-  const { user, isRealAuth } = useSiteAuth();
+  const { user, isRealAuth, esSesionReal } = useSiteAuth();
   const { language } = useSiteLanguage();
   const t = text[language];
   const dialogo = useDialogo();
@@ -117,7 +198,7 @@ export default function LibraryPage() {
                   tab === 'videos' ? 'border-transparent bg-brand-gradient text-white' : 'border-brand-200 text-ink/60 hover:bg-brand-50'
                 }`}
               >
-                🎬 {t.tabVideos} <span className="text-xs opacity-70">({VIDEOS_COMPRADOS.length})</span>
+                🎬 {t.tabVideos} {!esSesionReal && <span className="text-xs opacity-70">({VIDEOS_COMPRADOS.length})</span>}
               </button>
               <button
                 onClick={() => setTab('libros')}
@@ -125,7 +206,7 @@ export default function LibraryPage() {
                   tab === 'libros' ? 'border-transparent bg-brand-gradient text-white' : 'border-brand-200 text-ink/60 hover:bg-brand-50'
                 }`}
               >
-                📚 {t.tabLibros} <span className="text-xs opacity-70">({LIBROS_COMPRADOS.length})</span>
+                📚 {t.tabLibros} {!esSesionReal && <span className="text-xs opacity-70">({LIBROS_COMPRADOS.length})</span>}
               </button>
             </div>
             <div className="relative">
@@ -140,7 +221,9 @@ export default function LibraryPage() {
             </div>
           </div>
 
-          {tab === 'videos' ? (
+          {esSesionReal ? (
+            <BibliotecaReal tab={tab} busqueda={busqueda} t={t} language={language} />
+          ) : tab === 'videos' ? (
             <div className="grid grid-cols-2 gap-5 lg:grid-cols-3">
               {videosFiltrados.map((v) => (
                 <article key={v.key} className="group overflow-hidden rounded-2xl border border-brand-100 bg-white shadow-soft">

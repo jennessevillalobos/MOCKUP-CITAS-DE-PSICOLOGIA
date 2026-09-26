@@ -5,6 +5,7 @@ import { useSiteAuth } from '@/context/SiteAuthContext';
 import { createStripeSession, createPaypalOrder } from '@/lib/api/edgeFunctions';
 import { reportarTransferencia, ordenDeCita } from '@/lib/api/pagos';
 import { reportarPagoCurso } from '@/lib/api/cursosEstudiante';
+import { reportarPagoProducto } from '@/lib/api/productosEstudiante';
 
 interface PaymentCheckoutModalProps {
   // En unidades de la moneda (USD), no centavos.
@@ -12,6 +13,7 @@ interface PaymentCheckoutModalProps {
   // Cita o curso al que se aplica el pago (uno de los dos, obligatorio con sesión real).
   citaId?: string;
   cursoId?: number;
+  productoId?: number;
   concepto: string;
   moneda?: string;
   ordenId?: string;
@@ -62,7 +64,7 @@ const text = {
   }
 } as const;
 
-export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', ordenId, citaId, cursoId, onClose, onSuccess }: PaymentCheckoutModalProps) {
+export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', ordenId, citaId, cursoId, productoId, onClose, onSuccess }: PaymentCheckoutModalProps) {
   const { language } = useSiteLanguage();
   const t = text[language];
   const { esSesionReal } = useSiteAuth();
@@ -87,14 +89,16 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
 
     // ── Flujo real (Supabase) ──
     if (esSesionReal) {
-      // Curso: por ahora solo transferencia (Stripe/PayPal cobran sobre órdenes de cita).
-      if (cursoId !== undefined) {
+      // Curso o producto: por ahora solo transferencia (Stripe/PayPal cobran sobre órdenes de cita).
+      if (cursoId !== undefined || productoId !== undefined) {
         if (method !== 'transfer') {
           setIsProcessing(false);
           setPayError(t.pasarelaNoDisponible);
           return;
         }
-        const res = await reportarPagoCurso(cursoId, monto, referencia, receiptFile);
+        const res = cursoId !== undefined
+          ? await reportarPagoCurso(cursoId, monto, referencia, receiptFile)
+          : await reportarPagoProducto(productoId as number, monto, referencia, receiptFile);
         setIsProcessing(false);
         if (res.error) {
           setPayError(res.error.message);

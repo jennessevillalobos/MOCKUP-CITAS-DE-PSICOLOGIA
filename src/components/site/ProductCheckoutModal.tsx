@@ -3,8 +3,7 @@ import { X, CreditCard, ShieldCheck, Loader2, PartyPopper, ArrowRight } from 'lu
 import { useNavigate } from 'react-router-dom';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useSiteAuth } from '@/context/SiteAuthContext';
-import { getSupabaseClient } from '@/lib/supabase/client';
-import { createStripeSession } from '@/lib/api/edgeFunctions';
+import CompraProductoReal from '@/components/site/CompraProductoReal';
 import { ProductoDigitalRecord } from '@/data/admin/digitalProductsData';
 
 interface ProductCheckoutModalProps {
@@ -58,54 +57,15 @@ export default function ProductCheckoutModal({ product, onClose }: ProductChecko
     setIsProcessing(true);
     setPayError(null);
 
-    // ── Ruta real: crear orden en Supabase, luego iniciar Stripe Checkout ──
-    if (isRealAuth) {
-      const supabase = getSupabaseClient();
-      if (supabase) {
-        // 1. Crear la orden en la tabla `ordenes`
-        const { data: session } = await supabase.auth.getSession();
-        const userId = session.session?.user.id;
-        if (userId) {
-          const { data: orden, error: ordenErr } = await supabase
-            .from('ordenes')
-            .insert({
-              usuario_id: userId,
-              concepto: product.titulo,
-              tipo_producto: 'producto_digital',
-              producto_id: String(product.id),
-              monto: product.precio,
-              moneda: product.moneda ?? 'USD',
-            })
-            .select('id')
-            .single();
-
-          if (ordenErr || !orden) {
-            setPayError(language === 'es' ? 'No se pudo crear la orden.' : 'Could not create the order.');
-            setIsProcessing(false);
-            return;
-          }
-
-          // 2. Iniciar sesión de pago con Stripe
-          const res = await createStripeSession(orden.id);
-          setIsProcessing(false);
-          if (res.data?.checkout_url) {
-            window.location.href = res.data.checkout_url;
-            return;
-          } else {
-            // Stripe no configurado o error: caer al modo demo
-            setIsSuccess(true);
-            return;
-          }
-        }
-      }
-    }
-
     // ── Ruta demo: sin Supabase o sin Stripe ──
     setTimeout(() => {
       setIsProcessing(false);
       setIsSuccess(true);
     }, 1500);
   };
+
+  // Con Supabase: compra real por transferencia (CompraProductoReal).
+  if (isRealAuth) return <CompraProductoReal product={product} onClose={onClose} />;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center bg-ink/40 backdrop-blur-sm sm:items-center sm:p-4">

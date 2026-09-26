@@ -25,7 +25,7 @@ export interface PagoPaciente {
 export interface PagoEnRevision {
   id: string;
   // Transferencia de una cita o de un curso (migración 027).
-  tipo: 'cita' | 'curso';
+  tipo: 'cita' | 'curso' | 'producto';
   citaId: string | null;
   cursoId: number | null;
   alumno: string;
