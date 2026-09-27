@@ -1,7 +1,8 @@
 // Datos de contacto y redes que usa todo el sitio (Home, pie de página, Contacto).
-// ⚠️ PENDIENTE (anotado en CLAUDE.md): reemplazar por los datos REALES de
-// PsiqueAmor. Hoy WhatsApp y teléfono son de relleno, y las redes apuntan a
-// las páginas generales de cada plataforma hasta tener las cuentas propias.
+// Con Supabase manda lo que guarda el admin en Configuración → General
+// (tabla `configuracion_sitio`, hook `useContacto`); esto queda como respaldo
+// y como valores del modo demo. WhatsApp y teléfono son de relleno y las redes
+// apuntan a las páginas generales hasta tener las cuentas propias.
 export const contactConfig = {
   whatsapp: 'https://wa.me/0000000000',
   phone: '+00 000 000 0000',

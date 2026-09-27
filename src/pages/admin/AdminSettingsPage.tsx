@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Settings2, Search as SearchIcon, Smartphone, ClipboardList, ShieldCheck, ImagePlus, Monitor,
@@ -12,6 +12,39 @@ import {
   type ConfigGeneral, type SeoPagina, type PwaConfig, type AuditLogEntry, type SesionActiva,
 } from '@/data/admin/settingsData';
 import { ALL_ROLES, ALL_PERMISOS, ROLE_PERMISOS, type UserRole, type Permiso } from '@/data/admin/usersData';
+import { useAdminAuth } from '@/context/AdminAuthContext';
+import { useDialogo } from '@/context/DialogoContext';
+import AvisoFlotante from '@/components/admin/ui/AvisoFlotante';
+import { useContacto, refrescarContacto } from '@/hooks/useContacto';
+import { exportarCSV } from '@/data/admin/reportsData';
+import {
+  guardarContactoAdmin, cargarAuditoriaAdmin, misSesionesAdmin, cerrarSesionAdmin, type SesionAdmin,
+} from '@/lib/api/admin';
+
+// Campos de contacto editables (Configuración → General, migración 049).
+const CAMPOS_CONTACTO: { clave: 'whatsapp' | 'phone' | 'email' | 'location' | 'hours' | 'instagram' | 'linkedin' | 'youtube'; es: string; en: string; ayuda?: string }[] = [
+  { clave: 'whatsapp', es: 'Enlace de WhatsApp', en: 'WhatsApp link', ayuda: 'https://wa.me/58412XXXXXXX' },
+  { clave: 'phone', es: 'Teléfono visible', en: 'Visible phone' },
+  { clave: 'email', es: 'Correo de contacto', en: 'Contact email' },
+  { clave: 'location', es: 'Ubicación / modalidad', en: 'Location / modality' },
+  { clave: 'hours', es: 'Horario', en: 'Hours' },
+  { clave: 'instagram', es: 'Instagram', en: 'Instagram' },
+  { clave: 'linkedin', es: 'LinkedIn', en: 'LinkedIn' },
+  { clave: 'youtube', es: 'YouTube', en: 'YouTube' },
+];
+
+// Dispositivo legible a partir del user agent.
+function dispositivo(ua: string | null) {
+  if (!ua) return 'Dispositivo desconocido';
+  const nav = /Edg\//.test(ua) ? 'Edge' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Navegador';
+  const so = /Windows/.test(ua) ? 'Windows' : /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '';
+  return `${nav}${so ? ` · ${so}` : ''}`;
+}
+
+function fechaHora(iso: string) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 
 type Tab = 'general' | 'seo' | 'pwa' | 'auditoria' | 'seguridad';
 
@@ -67,6 +100,63 @@ export default function AdminSettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = (searchParams.get('tab') as Tab) || 'general';
 
+  const { esReal } = useAdminAuth();
+  const { confirmar } = useDialogo();
+  const [aviso, setAviso] = useState<{ texto: string; error?: boolean } | null>(null);
+  function mostrarAviso(texto: string, error = false) {
+    setAviso({ texto, error });
+    window.setTimeout(() => setAviso(null), 4000);
+  }
+
+  // Contacto real (lo que ve el sitio).
+  const contactoActual = useContacto();
+  const [contacto, setContacto] = useState<Record<string, string>>({ ...contactoActual });
+  const [contactoTocado, setContactoTocado] = useState(false);
+  useEffect(() => {
+    if (!contactoTocado) setContacto({ ...contactoActual });
+  }, [contactoActual, contactoTocado]);
+  const [guardandoContacto, setGuardandoContacto] = useState(false);
+  async function guardarContacto() {
+    setGuardandoContacto(true);
+    const res = await guardarContactoAdmin(contacto);
+    setGuardandoContacto(false);
+    if (res.error) return mostrarAviso(res.error.message, true);
+    setContactoTocado(false);
+    refrescarContacto();
+    mostrarAviso(lang === 'es' ? 'Datos de contacto guardados: ya se ven en el sitio.' : 'Contact details saved: now live on the site.');
+  }
+
+  // Auditoría y sesiones reales.
+  const [auditoriaReal, setAuditoriaReal] = useState<AuditLogEntry[] | null>(null);
+  const [sesionesReales, setSesionesReales] = useState<SesionAdmin[] | null>(null);
+  const cargarSesiones = useCallback(async () => {
+    const res = await misSesionesAdmin();
+    if (res.error) return mostrarAviso(res.error.message, true);
+    setSesionesReales(res.data);
+  }, []);
+  useEffect(() => {
+    if (!esReal) return;
+    if (tab === 'auditoria' && auditoriaReal === null) {
+      void cargarAuditoriaAdmin().then((res) => {
+        if (res.error) return mostrarAviso(res.error.message, true);
+        setAuditoriaReal(res.data.map((e, i) => ({ id: String(i), fecha: fechaHora(e.fecha), usuario: e.usuario, accion: e.accion, tipo: e.tipo, detalle: e.detalle })));
+      });
+    }
+    if (tab === 'seguridad' && sesionesReales === null) void cargarSesiones();
+  }, [esReal, tab, auditoriaReal, sesionesReales, cargarSesiones]);
+
+  async function cerrarSesionReal(s: SesionAdmin) {
+    const ok = await confirmar(
+      lang === 'es' ? `¿Cerrar la sesión de ${dispositivo(s.dispositivo)}? Tendrá que volver a iniciar sesión en ese dispositivo.` : `Sign out ${dispositivo(s.dispositivo)}?`,
+      { peligro: true, textoAceptar: t.revoke }
+    );
+    if (!ok) return;
+    const res = await cerrarSesionAdmin(s.id);
+    if (res.error) return mostrarAviso(res.error.message, true);
+    mostrarAviso(lang === 'es' ? 'Sesión cerrada.' : 'Session revoked.');
+    void cargarSesiones();
+  }
+
   const [general, setGeneral] = useState<ConfigGeneral>(demoConfigGeneral);
   const [seoPages] = useState<SeoPagina[]>(demoSeoPaginas);
   const [seoSelId, setSeoSelId] = useState(demoSeoPaginas[0].id);
@@ -121,12 +211,12 @@ export default function AdminSettingsPage() {
 
   const logFiltrado = useMemo(
     () =>
-      demoAuditLog.filter(
+      (esReal ? auditoriaReal ?? [] : demoAuditLog).filter(
         (l) =>
           (filtroTipoLog === 'todos' || l.tipo === filtroTipoLog) &&
           (l.usuario.toLowerCase().includes(buscarLog.toLowerCase()) || l.accion.toLowerCase().includes(buscarLog.toLowerCase())),
       ),
-    [buscarLog, filtroTipoLog],
+    [buscarLog, filtroTipoLog, esReal, auditoriaReal],
   );
 
   return (
@@ -134,9 +224,12 @@ export default function AdminSettingsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
-          <p className="mt-1 text-sm text-ink/50">{t.subtitle}</p>
+          <p className="mt-1 text-sm text-ink/50">
+            {esReal ? (lang === 'es' ? 'Ajustes globales del sistema · datos reales' : 'Global system settings · live data') : t.subtitle}
+          </p>
         </div>
       </div>
+      <AvisoFlotante aviso={aviso} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[220px_1fr]">
         <aside className="h-fit space-y-1 rounded-3xl border border-brand-100 bg-white p-3 shadow-soft">
@@ -159,7 +252,49 @@ export default function AdminSettingsPage() {
         </aside>
 
         <div className="space-y-5">
-          {tab === 'general' && (
+          {tab === 'general' && esReal && (
+            <section className="space-y-4 rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
+              <div>
+                <p className="text-sm font-bold text-ink">{lang === 'es' ? 'Datos de contacto del sitio' : 'Site contact details'}</p>
+                <p className="mt-1 text-xs text-ink/50">
+                  {lang === 'es'
+                    ? 'Se muestran en el Home, la página de Contacto, el pie de página y el botón de WhatsApp. Al guardar se actualizan en el sitio.'
+                    : 'Shown on the Home page, the Contact page, the footer and the WhatsApp button. Saving updates the site.'}
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {CAMPOS_CONTACTO.map((c) => (
+                  <div key={c.clave}>
+                    <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">{c[lang]}</label>
+                    <input
+                      value={contacto[c.clave] ?? ''}
+                      placeholder={c.ayuda}
+                      onChange={(e) => {
+                        setContactoTocado(true);
+                        setContacto((prev) => ({ ...prev, [c.clave]: e.target.value }));
+                      }}
+                      className="h-10 w-full rounded-xl border border-brand-200 px-3 text-sm text-ink outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() => void guardarContacto()}
+                disabled={guardandoContacto || !contactoTocado}
+                className="flex items-center gap-2 rounded-xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft hover:opacity-90 disabled:opacity-50"
+              >
+                <Save size={15} />
+                {t.save}
+              </button>
+              <div className="rounded-2xl bg-brand-50/60 px-4 py-3 text-xs leading-relaxed text-ink/55">
+                {lang === 'es'
+                  ? `Próximamente editable: nombre del sitio (${general.nombre}), eslogan, logo, colores de marca, idiomas (ES/EN), moneda principal (${general.monedaPrincipal}) y zona horaria (${general.zonaHoraria}). Hoy están definidos en el código del sitio.`
+                  : `Coming soon: site name, slogan, logo, brand colors, languages, main currency and timezone. They are currently defined in the site code.`}
+              </div>
+            </section>
+          )}
+
+          {tab === 'general' && !esReal && (
             <section className="space-y-5 rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
@@ -240,7 +375,15 @@ export default function AdminSettingsPage() {
             </section>
           )}
 
-          {tab === 'seo' && (
+          {(tab === 'seo' || tab === 'pwa') && esReal && (
+            <p className="rounded-3xl border border-brand-100 bg-white p-5 text-sm text-ink/60 shadow-soft">
+              {lang === 'es'
+                ? `Próximamente. Hoy ${tab === 'seo' ? 'los títulos y descripciones de cada página' : 'la configuración de la app instalable (PWA)'} se definen en el código del sitio.`
+                : `Coming soon. ${tab === 'seo' ? 'Page titles and descriptions' : 'The installable app (PWA) settings'} are currently defined in the site code.`}
+            </p>
+          )}
+
+          {tab === 'seo' && !esReal && (
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-[220px_1fr]">
               <div className="h-fit space-y-1 rounded-3xl border border-brand-100 bg-white p-3 shadow-soft">
                 {seoPages.map((p) => (
@@ -304,7 +447,7 @@ export default function AdminSettingsPage() {
             </div>
           )}
 
-          {tab === 'pwa' && (
+          {tab === 'pwa' && !esReal && (
             <section className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_220px]">
               <div className="space-y-4 rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -379,7 +522,12 @@ export default function AdminSettingsPage() {
                     <option key={tp} value={tp}>{t.tipos[tp]}</option>
                   ))}
                 </select>
-                <button className="ml-auto flex items-center gap-1.5 rounded-xl border border-brand-200 px-3 py-2 text-xs font-bold text-brand-700 hover:bg-brand-50">
+                <button
+                  onClick={() =>
+                    exportarCSV('auditoria.csv', [t.date, t.user, t.action, t.detail, t.actionType], logFiltrado.map((l) => [l.fecha, l.usuario, l.accion, l.detalle, t.tipos[l.tipo]]))
+                  }
+                  className="ml-auto flex items-center gap-1.5 rounded-xl border border-brand-200 px-3 py-2 text-xs font-bold text-brand-700 hover:bg-brand-50"
+                >
                   <ClipboardList size={14} />
                   {t.export}
                 </button>
@@ -400,7 +548,7 @@ export default function AdminSettingsPage() {
                     <tbody className="divide-y divide-brand-50">
                       {logFiltrado.map((l) => (
                         <tr key={l.id} className="hover:bg-brand-50/50">
-                          <td className="px-5 py-3 text-ink/45">{l.fecha}</td>
+                          <td className="whitespace-nowrap px-5 py-3 text-ink/45">{l.fecha}</td>
                           <td className="px-5 py-3 font-semibold text-ink">{l.usuario}</td>
                           <td className="px-5 py-3 text-ink/70">{l.accion}</td>
                           <td className="px-5 py-3 text-ink/45">{l.detalle}</td>
@@ -409,6 +557,11 @@ export default function AdminSettingsPage() {
                           </td>
                         </tr>
                       ))}
+                      {esReal && logFiltrado.length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-5 py-10 text-center text-sm text-ink/40">{auditoriaReal === null ? '…' : lang === 'es' ? 'Sin registros.' : 'No entries.'}</td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -423,6 +576,28 @@ export default function AdminSettingsPage() {
                   <Monitor size={16} className="text-brand-500" />
                   {t.activeSessions}
                 </p>
+                {esReal ? (
+                  <div className="divide-y divide-brand-50">
+                    {(sesionesReales ?? []).map((s) => (
+                      <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                        <div>
+                          <p className="text-sm font-semibold text-ink">
+                            {dispositivo(s.dispositivo)}
+                            {s.actual && <span className="ml-2 rounded-full bg-brand-50 px-2 py-0.5 text-[10px] font-bold text-brand-600">{t.current}</span>}
+                          </p>
+                          <p className="text-xs text-ink/45">{s.ip ?? '—'} · {fechaHora(s.actividad)}</p>
+                        </div>
+                        {!s.actual && (
+                          <button onClick={() => void cerrarSesionReal(s)} className="flex items-center gap-1.5 rounded-xl border border-rose-200 px-3 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50">
+                            <LogOut size={13} />
+                            {t.revoke}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {sesionesReales?.length === 0 && <p className="py-3 text-xs text-ink/40">—</p>}
+                  </div>
+                ) : (
                 <div className="divide-y divide-brand-50">
                   {sesiones.map((s) => (
                     <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
@@ -442,8 +617,16 @@ export default function AdminSettingsPage() {
                     </div>
                   ))}
                 </div>
+                )}
               </section>
 
+              {esReal ? (
+                <p className="rounded-3xl border border-brand-100 bg-white p-5 text-xs leading-relaxed text-ink/55 shadow-soft">
+                  {lang === 'es'
+                    ? 'Próximamente: autenticación en dos pasos (2FA) y cierre de sesión por inactividad. Hoy las sesiones duran hasta que cierras sesión o las revocas aquí; bloquear una cuenta en Usuarios cierra todas sus sesiones.'
+                    : 'Coming soon: two-factor authentication and inactivity logout. Blocking an account in Users closes all its sessions.'}
+                </p>
+              ) : (
               <section className="space-y-2.5 rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
                 <label className="flex items-center justify-between text-sm text-ink/70">
                   {t.twoFactor}
@@ -454,9 +637,17 @@ export default function AdminSettingsPage() {
                   <input type="checkbox" checked={autoLogout} onChange={(e) => setAutoLogout(e.target.checked)} className="h-4 w-4 rounded border-brand-300 text-brand-600" />
                 </label>
               </section>
+              )}
 
               <section className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
                 <p className="mb-3 text-sm font-bold text-ink">{t.permMatrix}</p>
+                {esReal && (
+                  <p className="mb-3 text-xs text-ink/50">
+                    {lang === 'es'
+                      ? 'Así funcionan hoy los roles (definidos en la base de datos, no editables aquí). Los roles de cada persona se asignan en Usuarios.'
+                      : 'This is how roles work today (defined in the database, not editable here). Assign roles in Users.'}
+                  </p>
+                )}
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[560px] text-sm">
                     <thead>
@@ -476,6 +667,7 @@ export default function AdminSettingsPage() {
                               <input
                                 type="checkbox"
                                 checked={matriz[r]?.has(p) ?? false}
+                                disabled={esReal}
                                 onChange={() => togglePermiso(r, p)}
                                 className="h-4 w-4 rounded border-brand-300 text-brand-600"
                               />
@@ -486,10 +678,12 @@ export default function AdminSettingsPage() {
                     </tbody>
                   </table>
                 </div>
+                {!esReal && (
                 <button onClick={guardarPerms} className="mt-4 flex items-center gap-2 rounded-xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft hover:opacity-90">
                   <Save size={15} />
                   {savedPerms ? '✓ Guardado' : t.savePerms}
                 </button>
+                )}
               </section>
             </div>
           )}

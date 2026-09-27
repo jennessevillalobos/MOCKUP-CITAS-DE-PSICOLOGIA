@@ -20,6 +20,12 @@ import {
   type PeriodoValor,
   type DiaReporte,
 } from '@/data/admin/reportsData';
+import { useAdminAuth } from '@/context/AdminAuthContext';
+import { cargarReportesAdmin, type ReportesAdmin } from '@/lib/api/admin';
+
+function isoLocal(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 type Tab = 'fin' | 'cit' | 'aca' | 'com' | 'cal';
 
@@ -93,6 +99,11 @@ export default function AdminReportsPage() {
   const { lang } = useAdminLanguage();
   const t = text[lang];
 
+  const { esReal } = useAdminAuth();
+  // Con Supabase: hoy real y datos de admin_reportes; si no, la serie demo.
+  const hoyBase = useMemo(() => (esReal ? new Date() : HOY_BASE), [esReal]);
+  const [reporte, setReporte] = useState<ReportesAdmin | null>(null);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('fin');
   const [periodo, setPeriodo] = useState<PeriodoValor>('7d');
   const [fDesde, setFDesde] = useState('');
@@ -105,12 +116,40 @@ export default function AdminReportsPage() {
     return () => clearTimeout(id);
   }, [tab, periodo, fDesde, fHasta]);
 
+  const rango = useMemo(() => rangoPeriodo(periodo, hoyBase, fDesde, fHasta), [periodo, hoyBase, fDesde, fHasta]);
+
+  useEffect(() => {
+    if (!esReal) return;
+    let vigente = true;
+    void cargarReportesAdmin(isoLocal(rango.desde), isoLocal(rango.hasta)).then((res) => {
+      if (!vigente) return;
+      if (res.error) setErrorCarga(res.error.message);
+      else {
+        setErrorCarga(null);
+        setReporte(res.data);
+      }
+    });
+    return () => {
+      vigente = false;
+    };
+  }, [esReal, rango]);
+
   const { dias, diasAnt } = useMemo(() => {
-    const { desde, hasta } = rangoPeriodo(periodo, HOY_BASE, fDesde, fHasta);
-    const d = diasEnRango(desde, hasta);
-    const ant = rangoAnterior(desde, hasta);
+    if (esReal) {
+      const serie: DiaReporte[] = (reporte?.dias ?? []).map((d) => ({
+        ...d,
+        fecha: new Date(`${d.fecha}T00:00:00`),
+        ingresosTotal: d.ingresosServicios + d.ingresosCursos + d.ingresosVideos + d.ingresosLibros,
+      }));
+      const desdeISO = isoLocal(rango.desde);
+      return { dias: serie.filter((d) => isoLocal(d.fecha) >= desdeISO), diasAnt: serie.filter((d) => isoLocal(d.fecha) < desdeISO) };
+    }
+    const d = diasEnRango(rango.desde, rango.hasta);
+    const ant = rangoAnterior(rango.desde, rango.hasta);
     return { dias: d, diasAnt: diasEnRango(ant.desde, ant.hasta) };
-  }, [periodo, fDesde, fHasta]);
+  }, [esReal, reporte, rango]);
+
+  const catLabel = (c: string) => (c === 'servicio' ? t.servicio : c === 'curso' ? t.curso : c === 'video' ? t.video : t.libro);
 
   const servicios = useMemo(() => serviciosDisponibles(), []);
   const profesionales = useMemo(() => profesionalesDisponibles(), []);
@@ -167,7 +206,7 @@ export default function AdminReportsPage() {
   const finTotal = finServicios + finCursos + finProductos;
   const finTotalAnt = finServiciosAnt + finCursosAnt + finProductosAnt;
 
-  const filasFin = useMemo(() => {
+  const filasFinDemo = useMemo(() => {
     const totalGeneral = finTotal || 1;
     const filas = [
       ...servicios.map((s) => ({ concepto: s.n, categoria: t.servicio, monto: finServicios * s.w })),
@@ -177,6 +216,9 @@ export default function AdminReportsPage() {
     ];
     return filas.map((f) => ({ ...f, pct: (f.monto / totalGeneral) * 100 })).sort((a, b) => b.monto - a.monto);
   }, [dias, servicios, cursos, videos, libros, finServicios, finCursos, finTotal, t]);
+  const filasFin = esReal
+    ? (reporte?.finanzas ?? []).map((f) => ({ concepto: f.concepto, categoria: catLabel(f.categoria), monto: f.monto, pct: finTotal ? (f.monto / finTotal) * 100 : 0 }))
+    : filasFinDemo;
 
   // ---------- Citas ----------
   const citReal = sum(dias, 'citasReal');
@@ -185,7 +227,7 @@ export default function AdminReportsPage() {
   const citNoshow = sum(dias, 'citasNoShow');
   const citTotalAgenda = citReal + citCancel + citNoshow;
 
-  const filasCit = useMemo(
+  const filasCitDemo = useMemo(
     () =>
       profesionales
         .map((p) => {
@@ -198,6 +240,12 @@ export default function AdminReportsPage() {
         .sort((a, b) => b.realizadas - a.realizadas),
     [profesionales, citReal, citCancel, citNoshow],
   );
+  const filasCit = esReal
+    ? (reporte?.citasPorProfesional ?? []).map((f) => {
+        const total = f.realizadas + f.canceladas + f.noshow;
+        return { ...f, ocupacion: total ? Math.round((f.realizadas / total) * 100) : 0 };
+      })
+    : filasCitDemo;
 
   // ---------- Academia ----------
   const acaInsc = sum(dias, 'inscripciones');
@@ -206,7 +254,7 @@ export default function AdminReportsPage() {
   const acaEvalT = sum(dias, 'evalTotal');
   const acaEvalA = sum(dias, 'evalAprobadas');
 
-  const filasAca = useMemo(
+  const filasAcaDemo = useMemo(
     () =>
       cursos
         .map((c) => {
@@ -223,6 +271,13 @@ export default function AdminReportsPage() {
         .sort((a, b) => b.inscripciones - a.inscripciones),
     [cursos, acaInsc, acaComp, acaEvalT, acaEvalA],
   );
+  const filasAca = esReal
+    ? (reporte?.academiaPorCurso ?? []).map((f) => ({
+        curso: f.curso, inscripciones: f.inscripciones, completados: f.completados,
+        pctCompletacion: f.inscripciones ? Math.round((f.completados / f.inscripciones) * 100) : 0,
+        pctAprobacion: f.evaluaciones ? Math.round((f.aprobadas / f.evaluaciones) * 100) : 0,
+      }))
+    : filasAcaDemo;
 
   // ---------- Comercio ----------
   const uCursos = sum(dias, 'ventasCursosUnid');
@@ -235,7 +290,7 @@ export default function AdminReportsPage() {
   const comUnidAnt = sum(diasAnt, 'ventasCursosUnid') + sum(diasAnt, 'ventasVideosUnid') + sum(diasAnt, 'ventasLibrosUnid');
   const comMontoTotal = mCursos + mVideos + mLibros;
 
-  const filasCom = useMemo(
+  const filasComDemo = useMemo(
     () =>
       [
         ...cursos.map((c) => ({ producto: c.n, categoria: t.curso, unidades: Math.round(uCursos * c.w), monto: mCursos * c.w })),
@@ -244,6 +299,9 @@ export default function AdminReportsPage() {
       ].sort((a, b) => b.monto - a.monto),
     [cursos, videos, libros, uCursos, mCursos, uVideos, mVideos, uLibros, mLibros, t],
   );
+  const filasCom = esReal
+    ? (reporte?.ventas ?? []).filter((v) => v.unidades > 0 || v.monto !== 0).map((v) => ({ ...v, categoria: catLabel(v.categoria) }))
+    : filasComDemo;
 
   // ---------- Comentarios ----------
   const calTotalComentarios = sum(dias, 'comentarios');
@@ -256,6 +314,25 @@ export default function AdminReportsPage() {
   }, [dias]);
   const calSatis = calTotalComentarios ? Math.round(((calDist[3] + calDist[4]) / calTotalComentarios) * 100) : 0;
   const variacion = [0.3, -0.1, 0.15, -0.2, 0.05];
+
+  function BloqueEstrellasReal({ filas }: { filas: { nombre: string; promedio: number; total: number }[] }) {
+    if (!filas.length) return <p className="text-sm text-ink/40">{t.noReviews}</p>;
+    return (
+      <div className="space-y-3">
+        {filas.map((f) => (
+          <div key={f.nombre}>
+            <div className="mb-1 flex items-center justify-between text-sm">
+              <span className="text-ink/70">{f.nombre}</span>
+              <span className="text-ink/45">{f.promedio.toFixed(1)} ★ · {f.total}</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-brand-50">
+              <div className="h-full rounded-full bg-lilac-400" style={{ width: `${Math.round((f.promedio / 5) * 100)}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   function BloqueEstrellas({ dimensiones }: { dimensiones: string[] }) {
     if (!calTotalComentarios) return <p className="text-sm text-ink/40">{t.noReviews}</p>;
@@ -290,7 +367,10 @@ export default function AdminReportsPage() {
             <BarChart3 size={22} className="text-brand-500" />
             {t.title}
           </h1>
-          <p className="mt-1 text-sm text-ink/50">{t.subtitle}</p>
+          <p className="mt-1 text-sm text-ink/50">
+            {t.subtitle}
+            {esReal ? (lang === 'es' ? ' · datos reales (ingresos netos de reembolsos)' : ' · live data (revenue net of refunds)') : ''}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -310,6 +390,8 @@ export default function AdminReportsPage() {
           )}
         </div>
       </div>
+
+      {errorCarga && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCarga}</p>}
 
       <div className="flex gap-1 overflow-x-auto rounded-2xl border border-brand-100 bg-white p-1 sm:w-fit">
         {(Object.keys(t.tabs) as Tab[]).map((tb) => (
@@ -612,11 +694,11 @@ export default function AdminReportsPage() {
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
               <h2 className="mb-3 font-display text-lg font-semibold text-ink">{t.avgByService}</h2>
-              <BloqueEstrellas dimensiones={servicios.map((s) => s.n)} />
+              {esReal ? <BloqueEstrellasReal filas={reporte?.resenasPorServicio ?? []} /> : <BloqueEstrellas dimensiones={servicios.map((s) => s.n)} />}
             </div>
             <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
               <h2 className="mb-3 font-display text-lg font-semibold text-ink">{t.avgByProfessional}</h2>
-              <BloqueEstrellas dimensiones={profesionales.map((p) => p.n)} />
+              {esReal ? <BloqueEstrellasReal filas={reporte?.resenasPorProfesional ?? []} /> : <BloqueEstrellas dimensiones={profesionales.map((p) => p.n)} />}
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import { Instagram, Linkedin, Youtube } from 'lucide-react';
-import { contactConfig } from '@/config/contact';
+import { useContacto } from '@/hooks/useContacto';
 import { translations } from '@/i18n/translations';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 
@@ -20,6 +20,7 @@ function FooterColumn({ title, links }: { title: string; links: readonly string[
 
 export default function SiteFooter() {
   const { language } = useSiteLanguage();
+  const contactConfig = useContacto();
   const t = translations[language];
 
   return (

@@ -483,3 +483,80 @@ export async function contarAvisosNoLeidos(): Promise<number> {
   const { count } = await supabase.from('notificaciones').select('id', { count: 'exact', head: true }).eq('leida', false);
   return count ?? 0;
 }
+
+// ── Reportes (migraciones 047–048) ──
+
+export interface DiaReporteBase {
+  fecha: string;
+  citasReal: number; citasCancel: number; citasNoShow: number;
+  ingresosServicios: number; ingresosCursos: number; ingresosVideos: number; ingresosLibros: number;
+  inscripciones: number; cursosCompletados: number; evalTotal: number; evalAprobadas: number;
+  ventasCursosUnid: number; ventasVideosUnid: number; ventasLibrosUnid: number;
+  comentarios: number; sumaEstrellas: number; dist: number[];
+}
+
+export interface ReportesAdmin {
+  dias: DiaReporteBase[];
+  finanzas: { concepto: string; categoria: 'servicio' | 'curso' | 'video' | 'libro'; monto: number }[];
+  citasPorProfesional: { profesional: string; realizadas: number; canceladas: number; noshow: number }[];
+  academiaPorCurso: { curso: string; inscripciones: number; completados: number; evaluaciones: number; aprobadas: number }[];
+  ventas: { producto: string; categoria: 'curso' | 'video' | 'libro'; unidades: number; monto: number }[];
+  resenasPorServicio: { nombre: string; promedio: number; total: number }[];
+  resenasPorProfesional: { nombre: string; promedio: number; total: number }[];
+}
+
+// Serie diaria desde el inicio del período anterior hasta `hasta`, en USD.
+export async function cargarReportesAdmin(desde: string, hasta: string): Promise<Result<ReportesAdmin>> {
+  const res = await rpcAdmin<ReportesAdmin>('admin_reportes', { p_desde: desde, p_hasta: hasta });
+  if (res.error) return fail(res.error);
+  const r = res.data;
+  return ok({
+    ...r,
+    dias: (r.dias ?? []).map((d) => ({
+      ...d,
+      ingresosServicios: aUsd(d.ingresosServicios), ingresosCursos: aUsd(d.ingresosCursos),
+      ingresosVideos: aUsd(d.ingresosVideos), ingresosLibros: aUsd(d.ingresosLibros),
+    })),
+    finanzas: (r.finanzas ?? []).map((f) => ({ ...f, monto: aUsd(f.monto) })),
+    ventas: (r.ventas ?? []).map((v) => ({ ...v, monto: aUsd(v.monto) })),
+    resenasPorServicio: (r.resenasPorServicio ?? []).map((x) => ({ ...x, promedio: Number(x.promedio) })),
+    resenasPorProfesional: (r.resenasPorProfesional ?? []).map((x) => ({ ...x, promedio: Number(x.promedio) })),
+  });
+}
+
+// ── Configuración: contacto, auditoría y sesiones (migración 049) ──
+
+export function guardarContactoAdmin(valor: Record<string, string>) {
+  return rpcAdmin<null>('admin_guardar_contacto', { p_valor: valor });
+}
+
+export interface EventoAuditoria {
+  fecha: string;
+  usuario: string;
+  accion: string;
+  detalle: string;
+  tipo: 'Creación' | 'Edición' | 'Eliminación' | 'Acceso' | 'Seguridad';
+}
+
+export async function cargarAuditoriaAdmin(): Promise<Result<EventoAuditoria[]>> {
+  const res = await rpcAdmin<EventoAuditoria[] | null>('admin_auditoria');
+  return res.error ? fail(res.error) : ok(res.data ?? []);
+}
+
+export interface SesionAdmin {
+  id: string;
+  dispositivo: string | null;
+  ip: string | null;
+  creada: string;
+  actividad: string;
+  actual: boolean;
+}
+
+export async function misSesionesAdmin(): Promise<Result<SesionAdmin[]>> {
+  const res = await rpcAdmin<SesionAdmin[] | null>('admin_mis_sesiones');
+  return res.error ? fail(res.error) : ok(res.data ?? []);
+}
+
+export function cerrarSesionAdmin(sesionId: string) {
+  return rpcAdmin<null>('admin_cerrar_sesion', { p_sesion_id: sesionId });
+}

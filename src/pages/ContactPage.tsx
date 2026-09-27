@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
-import { contactConfig } from '@/config/contact';
+import { useContacto } from '@/hooks/useContacto';
 import { SEDES, FAQ_CATEGORIAS } from '@/data/contactPageData';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 
@@ -52,6 +52,7 @@ const text = {
 
 export default function ContactPage() {
   const { language } = useSiteLanguage();
+  const contactConfig = useContacto();
   const t = text[language];
 
   const [form, setForm] = useState({ nombre: '', correo: '', telefono: '', asunto: '', mensaje: '', privacidad: false });

@@ -8,7 +8,7 @@ import {
   Users, Video, X, Youtube,
 } from 'lucide-react';
 const logo = '/src/assets/logos/1_(1).png';
-import { contactConfig } from '@/config/contact';
+import { useContacto } from '@/hooks/useContacto';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
 import { sendContact } from '@/lib/api/edgeFunctions';
 import { courses, images, professionals } from '@/data/homeData';
@@ -45,6 +45,7 @@ function AppButton({ children, href = '#contact', light = false, outline = false
 
 export default function HomePage() {
   const { language, setLanguage } = useSiteLanguage();
+  const contactConfig = useContacto();
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState('top');
