@@ -293,7 +293,13 @@ export default function PatientPortalPage() {
             <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
               <p className="text-xs text-ink/50">{t.pagosPendientes}</p>
               <p className="mt-2 font-display text-lg font-semibold text-ink">USD ${monto(saldoPorPagar)}</p>
-              <p className="text-xs text-amber-600">{saldoPorPagar > 0 ? t.saldoPendiente : t.sinSaldos}</p>
+              <p className="text-xs text-amber-600">
+                {saldoPorPagar > 0
+                  ? t.saldoPendiente
+                  : enBase && totalEnRevision > 0
+                    ? `USD $${monto(totalEnRevision)} ${language === 'es' ? 'en revisión' : 'under review'}`
+                    : t.sinSaldos}
+              </p>
             </div>
             <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
               <p className="text-xs text-ink/50">{t.sesionesCompletadas}</p>
@@ -417,18 +423,27 @@ export default function PatientPortalPage() {
                 <div><p className="text-xs text-ink/45">{t.modalidad}</p><p className="text-ink">{citaSeleccionada.lugar ? `${citaSeleccionada.modalidad} · ${citaSeleccionada.lugar}` : citaSeleccionada.modalidad}</p></div>
                 <div><p className="text-xs text-ink/45">{t.duracion}</p><p className="text-ink">{citaSeleccionada.duracionMin ?? 50} min</p></div>
               </div>
+              {/* Sala: con la base real las citas aún no guardan enlace de videollamada. */}
+              {!/presencial/i.test(citaSeleccionada.modalidad) && (
               <div className="mt-6 flex flex-col gap-3 rounded-2xl bg-brand-50 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <p className="flex items-center gap-1.5 text-sm font-semibold text-ink"><Video size={16} className="text-brand-600" /> {t.salaSesion}</p>
-                  <p className="text-xs text-ink/50">{t.enlaceInfo}</p>
+                  <p className="text-xs text-ink/50">
+                    {enBase
+                      ? language === 'es' ? 'Tu profesional te compartirá el enlace de la videollamada antes de la sesión.' : 'Your professional will share the video call link before the session.'
+                      : t.enlaceInfo}
+                  </p>
                 </div>
+                {!enBase && (
                 <button
                   onClick={() => window.open('https://zoom.us/j/demo', '_blank')}
                   className="rounded-full bg-brand-gradient px-5 py-2.5 text-center text-sm font-bold text-white shadow-soft hover:opacity-90"
                 >
                   {t.unirmeSesion}
                 </button>
+                )}
               </div>
+              )}
 
               {aviso && (
                 <p role={aviso.tipo === 'error' ? 'alert' : 'status'} className={`mt-6 rounded-2xl px-4 py-3 text-sm ${aviso.tipo === 'error' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-700'}`}>
@@ -461,11 +476,14 @@ export default function PatientPortalPage() {
               <dl className="space-y-2 border-b border-brand-50 pb-4 text-sm">
                 <div className="flex justify-between"><dt className="text-ink/50">{t.total}</dt><dd className="text-ink">USD ${monto(citaSeleccionada.total)}</dd></div>
                 <div className="flex justify-between"><dt className="text-ink/50">{t.abonado}</dt><dd className="text-emerald-600">USD ${monto(citaSeleccionada.pagado)}</dd></div>
-                <div className="flex justify-between"><dt className="text-ink/50">{t.saldo}</dt><dd className="font-semibold text-amber-600">USD ${monto(citaSeleccionada.total - citaSeleccionada.pagado)}</dd></div>
+                {enBase && enRevisionDeCita(citaSeleccionada.id) > 0 && (
+                  <div className="flex justify-between"><dt className="text-ink/50">{language === 'es' ? 'En revisión' : 'Under review'}</dt><dd className="text-lilac-600">USD ${monto(enRevisionDeCita(citaSeleccionada.id))}</dd></div>
+                )}
+                <div className="flex justify-between"><dt className="text-ink/50">{t.saldo}</dt><dd className="font-semibold text-amber-600">USD ${monto(Math.max(0, citaSeleccionada.total - citaSeleccionada.pagado - (enBase ? enRevisionDeCita(citaSeleccionada.id) : 0)))}</dd></div>
               </dl>
-              {citaSeleccionada.estado === 'cancelada' ? null : citaSeleccionada.total > citaSeleccionada.pagado ? (
+              {citaSeleccionada.estado === 'cancelada' ? null : citaSeleccionada.total - citaSeleccionada.pagado - (enBase ? enRevisionDeCita(citaSeleccionada.id) : 0) > 0 ? (
                 <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-                  <span>{t.pagarSaldo} USD ${monto(citaSeleccionada.total - citaSeleccionada.pagado)}</span>
+                  <span>{t.pagarSaldo} USD ${monto(citaSeleccionada.total - citaSeleccionada.pagado - (enBase ? enRevisionDeCita(citaSeleccionada.id) : 0))}</span>
                   <button 
                     onClick={() => setPaymentModalData({ isOpen: true, monto: citaSeleccionada.total - citaSeleccionada.pagado - enRevisionDeCita(citaSeleccionada.id), concepto: `${citaSeleccionada.servicio[language]} · ${citaSeleccionada.fecha[language]}`, citaId: citaSeleccionada.id })} 
                     className="rounded-full bg-amber-600 px-3 py-1.5 text-xs text-white hover:bg-amber-700 transition"
@@ -473,6 +491,10 @@ export default function PatientPortalPage() {
                     {t.pagarAhora}
                   </button>
                 </div>
+              ) : citaSeleccionada.total > citaSeleccionada.pagado ? (
+                <p className="mt-4 text-sm font-semibold text-lilac-600">
+                  {language === 'es' ? 'Transferencia en revisión: te avisaremos cuando la profesional la apruebe.' : 'Transfer under review: we will let you know once it is approved.'}
+                </p>
               ) : (
                 <p className="mt-4 flex items-center gap-1.5 text-sm font-semibold text-emerald-600"><CheckCircle2 size={16} /> {t.pagado}</p>
               )}

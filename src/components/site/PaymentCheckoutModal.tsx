@@ -69,7 +69,11 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
   const t = text[language];
   const { esSesionReal } = useSiteAuth();
 
-  const [method, setMethod] = useState<'card' | 'paypal' | 'transfer'>('card');
+  // Con la base real, tarjeta (Stripe) y PayPal solo se ofrecen cuando están
+  // configurados (VITE_PAGOS_EN_LINEA=true) y para citas; si no, solo transferencia.
+  const pagosEnLinea = import.meta.env.VITE_PAGOS_EN_LINEA === 'true' && cursoId === undefined && productoId === undefined;
+  const metodos: ('card' | 'paypal' | 'transfer')[] = !esSesionReal || pagosEnLinea ? ['card', 'paypal', 'transfer'] : ['transfer'];
+  const [method, setMethod] = useState<'card' | 'paypal' | 'transfer'>(metodos[0]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
@@ -205,7 +209,7 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
 
               {/* Method Selector */}
               <div className="mb-6 flex rounded-xl border border-brand-100 bg-brand-50/50 p-1">
-                {(['card', 'paypal', 'transfer'] as const).map((m) => (
+                {metodos.map((m) => (
                   <button
                     key={m}
                     type="button"
@@ -320,7 +324,7 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
               )}
               <div className="mt-5 flex items-start gap-2 rounded-xl bg-brand-50 p-3 text-xs leading-5 text-ink/60">
                 <ShieldCheck size={16} className="shrink-0 text-brand-400" />
-                <p>{t.simulated}</p>
+                <p>{method === 'transfer' ? (language === 'es' ? 'Tu profesional revisa la transferencia y la aprueba; te avisamos en tu portal.' : 'Your professional reviews and approves the transfer; we will notify you in your portal.') : t.simulated}</p>
               </div>
             </form>
           )}

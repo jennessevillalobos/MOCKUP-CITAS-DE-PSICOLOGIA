@@ -90,7 +90,11 @@ export default function AulaVirtualPage() {
       <div className="flex flex-col items-center justify-between gap-6 rounded-3xl bg-brand-gradient p-6 shadow-soft sm:flex-row sm:p-8">
         <div>
           <h1 className="font-display text-2xl font-semibold text-white sm:text-3xl">{t.hola}, {primerNombre}! 🌱</h1>
-          <p className="mt-1 text-sm text-white/85">{t.sigue}</p>
+          <p className="mt-1 text-sm text-white/85">
+            {esSesionReal && cursosReales !== null && cursosReales.length === 0
+              ? language === 'es' ? 'Cuando te inscribas en un curso, aquí verás tu avance.' : 'Once you enroll in a course, your progress will show here.'
+              : t.sigue}
+          </p>
         </div>
         <div className="shrink-0 text-center">
           <div className="relative h-24 w-24">
@@ -124,8 +128,8 @@ export default function AulaVirtualPage() {
           <p className="font-display text-2xl font-semibold text-ink">{certificados}</p>
         </div>
         <Link to="/aula-virtual/pagos" className="rounded-3xl border border-brand-100 bg-white p-4 shadow-soft transition hover:border-brand-200">
-          <p className="text-xs text-ink/50">{t.cuotasPorVencer}</p>
-          <p className="font-display text-2xl font-semibold text-amber-600">{esSesionReal ? 0 : 1}</p>
+          <p className="text-xs text-ink/50">{esSesionReal ? (language === 'es' ? 'Pagos de cursos' : 'Course payments') : t.cuotasPorVencer}</p>
+          <p className="font-display text-2xl font-semibold text-amber-600">{esSesionReal ? '→' : 1}</p>
         </Link>
       </section>
 
