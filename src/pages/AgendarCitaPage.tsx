@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
+import PaymentCheckoutModal from '@/components/site/PaymentCheckoutModal';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
@@ -46,6 +47,11 @@ const text = {
     contrasenasNoCoinciden: 'Las contraseñas no coinciden.',
     yaSesion: 'Reservando como', noEresTu: '¿No eres tú?',
     paso6Sub: 'Completa el pago para confirmar tu cita.',
+    paso6SubReal: 'Revisa tu reserva. El pago es por transferencia: puedes reportarla apenas reserves o después desde tu Portal Paciente. La cita se confirma cuando la profesional aprueba el pago.',
+    reservaTitulo: 'Confirma tu reserva', reservar: 'Reservar cita', reservando: 'Reservando…',
+    confTituloReal: '¡Tu cita quedó reservada!', confSubReal: 'Queda pendiente de pago: se confirma cuando la profesional apruebe tu transferencia.',
+    pendientePago: 'Pendiente de pago', pagarAhora: 'Pagar ahora por transferencia',
+    pagoReportadoOk: 'Transferencia reportada. Te avisaremos en tu portal cuando la profesional la apruebe.',
     resumen: 'Resumen de tu cita', servicio: 'Servicio', profesional: 'Profesional', fechaHora: 'Fecha y hora', modalidad: 'Modalidad', duracion: 'Duración', total: 'Total a pagar',
     datosTarjeta: 'Datos de la tarjeta', numeroTarjeta: 'Número de tarjeta', nombreTarjeta: 'Nombre en la tarjeta', vencimiento: 'MM/AA', cvv: 'CVV',
     pagoSimuladoAviso: 'Pago simulado — esta demo aún no tiene backend, no se realiza ningún cargo real.',
@@ -93,6 +99,11 @@ const text = {
     datosTarjeta: 'Card details', numeroTarjeta: 'Card number', nombreTarjeta: 'Name on card', vencimiento: 'MM/YY', cvv: 'CVV',
     pagoSimuladoAviso: 'Simulated payment — this demo has no backend yet, no real charge is made.',
     pagar: 'Pay', pagando: 'Processing payment…',
+    paso6SubReal: 'Review your booking. Payment is by bank transfer: you can report it right after booking or later from your Patient Portal. The appointment is confirmed once the professional approves the payment.',
+    reservaTitulo: 'Confirm your booking', reservar: 'Book appointment', reservando: 'Booking…',
+    confTituloReal: 'Your appointment is booked!', confSubReal: 'Payment is pending: it is confirmed once the professional approves your transfer.',
+    pendientePago: 'Payment pending', pagarAhora: 'Pay now by bank transfer',
+    pagoReportadoOk: 'Transfer reported. We will let you know in your portal once the professional approves it.',
     confTitle: 'Your appointment is confirmed!', confSub: "We've saved all the details — here's your summary.",
     confId: 'Confirmation No.', confCorreoAviso: (correo: string) => `We sent the confirmation to ${correo} (simulated — this demo doesn't send real emails yet).`,
     confCuentaReal: (correo: string) => `Your account was created and you're signed in as ${correo}. From your Patient Portal you can view, reschedule or cancel the appointment.`,
@@ -132,7 +143,8 @@ function formatearDiaChip(fechaISO: string, language: 'es' | 'en') {
 
 function formatearFechaLarga(fechaISO: string, language: 'es' | 'en') {
   const d = new Date(`${fechaISO}T00:00:00`);
-  return d.toLocaleDateString(language === 'es' ? 'es-ES' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' });
+  const texto = d.toLocaleDateString(language === 'es' ? 'es-ES' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' });
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
 // Guarda el progreso del wizard (pasos 1-6) en localStorage para que no se
@@ -247,6 +259,9 @@ export default function AgendarCitaPage() {
   const [cuentaExiste, setCuentaExiste] = useState(false);
 
   const [citaConfirmada, setCitaConfirmada] = useState<{ id: string; correo: string; cuentaCreada: boolean } | null>(null);
+  // Con la base real: pago por transferencia desde la confirmación (misma ventana que el Portal).
+  const [pagoAbierto, setPagoAbierto] = useState(false);
+  const [pagoReportado, setPagoReportado] = useState(false);
 
   const servicio = useMemo(() => SERVICIOS_PUBLICOS.find((s) => s.key === servicioKey) ?? null, [servicioKey]);
   const profesional = useMemo(() => PROFESIONALES_PUBLICOS.find((p) => p.key === profesionalKey) ?? null, [profesionalKey]);
@@ -391,14 +406,14 @@ export default function AgendarCitaPage() {
             fecha: fechaISO,
             hora,
             nombre: nombre.trim(),
-            correo: correo.trim(),
+            correo: correo.trim().toLowerCase(),
             telefono: telefono.trim() || undefined,
             password: contrasena,
           })
         : await bookAppointment({ ...ids.data, fecha: fechaISO, hora });
 
       if (res.data && invitadoReal) {
-        const sesion = await loginWithPassword(correo.trim(), contrasena);
+        const sesion = await loginWithPassword(correo.trim().toLowerCase(), contrasena);
         if (sesion.error) console.error('[book-appointment-guest] login', sesion.error);
       }
 
@@ -406,7 +421,7 @@ export default function AgendarCitaPage() {
       if (res.data) {
         setContrasena('');
         setConfirmarContrasena('');
-        setCitaConfirmada({ id: res.data.cita_id, correo: correo.trim(), cuentaCreada: invitadoReal });
+        setCitaConfirmada({ id: res.data.cita_id, correo: correo.trim().toLowerCase(), cuentaCreada: invitadoReal });
         limpiarProgreso();
         irA(7);
       } else if (res.error?.code === 'account_exists') {
@@ -641,7 +656,7 @@ export default function AgendarCitaPage() {
 
                 {fechaISO && (
                   <div className="mt-6">
-                    <p className="mb-3 text-sm font-semibold capitalize text-ink">{formatearFechaLarga(fechaISO, language)}</p>
+                    <p className="mb-3 text-sm font-semibold text-ink">{formatearFechaLarga(fechaISO, language)}</p>
                     {horasDisponibles.length === 0 ? (
                       <p className="rounded-2xl bg-amber-50 p-4 text-center text-sm text-amber-700">{t.sinCupos}</p>
                     ) : (
@@ -745,7 +760,7 @@ export default function AgendarCitaPage() {
 
             {paso === 6 && servicio && profesional && modalidad && fechaISO && hora && (
               <form onSubmit={confirmarPago}>
-                <p className="mb-5 text-center text-sm text-ink/55">{t.paso6Sub}</p>
+                <p className="mx-auto mb-5 max-w-xl text-center text-sm text-ink/55">{isRealAuth ? t.paso6SubReal : t.paso6Sub}</p>
                 {bookingError && (
                   <div className="mb-4 flex items-center gap-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                     <span>⚠️</span>
@@ -755,6 +770,24 @@ export default function AgendarCitaPage() {
                     )}
                   </div>
                 )}
+                {isRealAuth ? (
+                  <div className="mx-auto max-w-xl rounded-3xl border border-brand-100 bg-white p-6 shadow-soft">
+                    <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold text-ink"><ShieldCheck size={18} className="text-brand-600" />{t.reservaTitulo}</h2>
+                    <dl className="space-y-2 text-sm">
+                      <div className="flex justify-between gap-3"><dt className="text-ink/50">{t.servicio}</dt><dd className="text-right font-semibold text-ink">{servicio.titulo[language]}</dd></div>
+                      <div className="flex justify-between gap-3"><dt className="text-ink/50">{t.profesional}</dt><dd className="text-right font-semibold text-ink">{profesional.name}</dd></div>
+                      <div className="flex justify-between gap-3"><dt className="text-ink/50">{t.fechaHora}</dt><dd className="text-right font-semibold text-ink">{formatearFechaLarga(fechaISO, language)} · {hora}</dd></div>
+                      <div className="flex justify-between gap-3 border-t border-brand-100 pt-2"><dt className="font-semibold text-ink">{t.total}</dt><dd className="text-right font-semibold text-ink">${servicio.precio} USD</dd></div>
+                    </dl>
+                    <button
+                      type="submit"
+                      disabled={pagando}
+                      className="mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-brand-gradient py-3.5 text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5 disabled:opacity-60"
+                    >
+                      {pagando ? (<><Loader2 size={16} className="animate-spin" />{t.reservando}</>) : (<>{t.reservar}<ArrowRight size={15} /></>)}
+                    </button>
+                  </div>
+                ) : (
                 <div className="mx-auto max-w-xl">
                   <div className="rounded-3xl border border-brand-100 bg-white p-6 shadow-soft">
                     <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-semibold text-ink"><CreditCard size={18} className="text-brand-600" />{t.datosTarjeta}</h2>
@@ -788,6 +821,7 @@ export default function AgendarCitaPage() {
                     </button>
                   </div>
                 </div>
+                )}
               </form>
             )}
 
@@ -842,7 +876,7 @@ export default function AgendarCitaPage() {
               <div className="flex justify-between gap-3"><dt className="text-ink/50">{t.modalidad}</dt><dd className="text-right font-semibold text-ink">
                 {modalidad === 'Online' ? t.online : modalidad === 'Presencial' ? `${t.presencial}${sedeSeleccionada ? ` · ${sedeSeleccionada.nombre}` : ''}` : '—'}
               </dd></div>
-              <div className="flex justify-between gap-3"><dt className="text-ink/50">{t.fecha}</dt><dd className="text-right font-semibold capitalize text-ink">
+              <div className="flex justify-between gap-3"><dt className="text-ink/50">{t.fecha}</dt><dd className="text-right font-semibold text-ink">
                 {fechaISO ? `${formatearFechaLarga(fechaISO, language)}${hora ? ` · ${hora}` : ''}` : '—'}
               </dd></div>
             </dl>
@@ -863,18 +897,22 @@ export default function AgendarCitaPage() {
             {paso === 7 && citaConfirmada && servicio && profesional && modalidad && fechaISO && hora && (
               <div className="mx-auto max-w-2xl rounded-3xl border border-brand-100 bg-white p-8 text-center shadow-soft sm:p-10">
                 <span className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full bg-emerald-50 text-emerald-600"><PartyPopper size={28} /></span>
-                <h2 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.confTitle}</h2>
-                <p className="mt-2 text-sm text-ink/55">{t.confSub}</p>
+                <h2 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{isRealAuth ? t.confTituloReal : t.confTitle}</h2>
+                <p className="mt-2 text-sm text-ink/55">{isRealAuth ? t.confSubReal : t.confSub}</p>
 
                 <div className="mx-auto mt-8 max-w-md rounded-2xl bg-brand-50/70 p-6 text-left">
                   <dl className="space-y-2.5 text-sm">
                     <div className="flex justify-between gap-3"><dt className="text-ink/50">{t.servicio}</dt><dd className="text-right font-semibold text-ink">{servicio.titulo[language]}</dd></div>
                     <div className="flex justify-between gap-3"><dt className="text-ink/50">{t.profesional}</dt><dd className="text-right font-semibold text-ink">{profesional.name}</dd></div>
-                    <div className="flex justify-between gap-3"><dt className="text-ink/50">{t.fechaHora}</dt><dd className="text-right font-semibold capitalize text-ink">{formatearFechaLarga(fechaISO, language)} · {hora}</dd></div>
+                    <div className="flex justify-between gap-3"><dt className="text-ink/50">{t.fechaHora}</dt><dd className="text-right font-semibold text-ink">{formatearFechaLarga(fechaISO, language)} · {hora}</dd></div>
                     <div className="flex justify-between gap-3"><dt className="text-ink/50">{t.modalidad}</dt><dd className="text-right font-semibold text-ink">
                       {modalidad === 'Online' ? t.online : (<span className="inline-flex items-center gap-1"><MapPin size={13} />{t.presencial}</span>)}
                     </dd></div>
-                    <div className="flex justify-between gap-3 border-t border-brand-200/60 pt-2.5"><dt className="font-semibold text-ink">{t.total}</dt><dd className="flex items-center gap-1.5 text-right font-semibold text-emerald-600"><CheckCircle2 size={15} />${servicio.precio} USD</dd></div>
+                    <div className="flex justify-between gap-3 border-t border-brand-200/60 pt-2.5"><dt className="font-semibold text-ink">{t.total}</dt>{isRealAuth ? (
+                      <dd className="text-right font-semibold text-ink">${servicio.precio} USD <span className="ml-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">{pagoReportado ? t.pendientePago + ' · ' + (language === 'es' ? 'en revisión' : 'in review') : t.pendientePago}</span></dd>
+                    ) : (
+                      <dd className="flex items-center gap-1.5 text-right font-semibold text-emerald-600"><CheckCircle2 size={15} />${servicio.precio} USD</dd>
+                    )}</div>
                   </dl>
                   <p className="mt-4 text-xs text-ink/40">{t.confId}: <span className="font-mono font-semibold text-ink/60">{citaConfirmada.id.toUpperCase()}</span></p>
                 </div>
@@ -888,6 +926,30 @@ export default function AgendarCitaPage() {
                 )}
                 {!isRealAuth && citaConfirmada.cuentaCreada && (
                   <p className="mx-auto mt-2 max-w-md text-xs leading-5 text-brand-600">{t.confCuentaCreada}</p>
+                )}
+
+                {isRealAuth && pagoReportado && (
+                  <p className="mx-auto mt-4 max-w-md rounded-2xl bg-emerald-50 px-4 py-3 text-xs text-emerald-700">{t.pagoReportadoOk}</p>
+                )}
+                {isRealAuth && !pagoReportado && (
+                  <button
+                    onClick={() => setPagoAbierto(true)}
+                    className="focus-ring mx-auto mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-brand-gradient px-6 text-sm font-bold text-white shadow-soft transition hover:-translate-y-1"
+                  >
+                    <CreditCard size={16} />{t.pagarAhora}
+                  </button>
+                )}
+                {pagoAbierto && (
+                  <PaymentCheckoutModal
+                    monto={servicio.precio}
+                    concepto={`${servicio.titulo[language]} · ${profesional.name}`}
+                    citaId={citaConfirmada.id}
+                    onClose={() => setPagoAbierto(false)}
+                    onSuccess={() => {
+                      setPagoAbierto(false);
+                      setPagoReportado(true);
+                    }}
+                  />
                 )}
 
                 <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">

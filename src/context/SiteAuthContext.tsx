@@ -6,6 +6,7 @@ import {
   type PerfilReal, type PreferenciasUsuario,
 } from '@/lib/api/perfil';
 import { toServiceError, type Result } from '@/lib/supabase/errors';
+import { sesionRealProbable } from '@/lib/supabase/sesionLocal';
 import type { RolNombre } from '@/lib/supabase/types';
 
 export type SiteRole = 'paciente' | 'profesional';
@@ -97,7 +98,9 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
   const realAuth = isSupabaseConfigured();
   // Ids del perfil real (usuario y ficha de profesional) para escribir en la base.
   const perfilRef = useRef<PerfilReal | null>(null);
-  const [esSesionReal, setEsSesionReal] = useState(false);
+  // Arranca en true si el navegador ya guarda una sesión real, para que las
+  // páginas no muestren unos segundos los datos demo; se corrige al validar.
+  const [esSesionReal, setEsSesionReal] = useState(() => sesionRealProbable());
 
   const persist = useCallback((next: SiteUser | null) => {
     setUser(next);
@@ -112,7 +115,10 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
   // Lee el perfil real (nombre, rol, foto…) desde la base y lo refleja en la sesión.
   const sincronizarPerfil = useCallback(async (): Promise<SiteUser | null> => {
     const res = await cargarPerfil();
-    if (res.error || !res.data) return null;
+    if (res.error || !res.data) {
+      setEsSesionReal(false);
+      return null;
+    }
     perfilRef.current = res.data;
     setEsSesionReal(true);
     const next = usuarioDesdePerfil(res.data);
@@ -129,6 +135,7 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
 
     supabase.auth.getSession().then(({ data }) => {
       if (data.session) void sincronizarPerfil();
+      else setEsSesionReal(false);
     });
     // Cierre de sesión desde otro dispositivo ("Cerrar todas las sesiones").
     const { data: sub } = supabase.auth.onAuthStateChange((evento) => {

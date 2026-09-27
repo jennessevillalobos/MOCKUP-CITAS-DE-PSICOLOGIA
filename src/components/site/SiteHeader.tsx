@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { ArrowRight, Menu, X } from 'lucide-react';
 import { translations } from '@/i18n/translations';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
+import { useSiteAuth } from '@/context/SiteAuthContext';
 
 const logo = '/src/assets/logos/1_(1).png';
 
@@ -16,6 +17,13 @@ const navRoutes: Record<number, string> = { 1: '/servicios', 2: '/profesionales'
 export default function SiteHeader() {
   const location = useLocation();
   const { language, setLanguage } = useSiteLanguage();
+  // Con sesión abierta, el acceso lleva al portal o al panel en vez de al login.
+  const { user: usuarioSitio } = useSiteAuth();
+  const accesoCuenta = !usuarioSitio
+    ? { to: '/iniciar-sesion', label: language === 'es' ? 'Iniciar sesión' : 'Log in' }
+    : usuarioSitio.rol === 'profesional'
+      ? { to: '/instructor', label: language === 'es' ? 'Mi panel' : 'My dashboard' }
+      : { to: '/portal-paciente', label: language === 'es' ? 'Mi portal' : 'My portal' };
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const t = translations[language];
@@ -53,7 +61,7 @@ export default function SiteHeader() {
             <button onClick={() => setLanguage('es')} className={`rounded-full px-2 py-1 ${language === 'es' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>ES</button>
             <button onClick={() => setLanguage('en')} className={`rounded-full px-2 py-1 ${language === 'en' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>EN</button>
           </div>
-          <Link to="/iniciar-sesion" className="text-xs font-bold text-ink/65 hover:text-brand-600">{language === 'es' ? 'Iniciar sesión' : 'Log in'}</Link>
+          <Link to={accesoCuenta.to} className="text-xs font-bold text-ink/65 hover:text-brand-600">{accesoCuenta.label}</Link>
           <Link to="/agendar" className="focus-ring inline-flex min-h-12 items-center justify-center gap-3 rounded-full bg-brand-gradient px-6 text-sm font-bold text-white shadow-[0_12px_28px_rgba(93,131,167,.28)] transition duration-300 hover:-translate-y-1 hover:shadow-lift">
             {t.primary}<ArrowRight size={15} />
           </Link>
@@ -81,7 +89,7 @@ export default function SiteHeader() {
             );
           })}
           <div className="mt-3 flex flex-wrap gap-3 border-t border-brand-100 pt-4">
-            <Link to="/iniciar-sesion" onClick={() => setMenuOpen(false)} className="rounded-full border border-brand-300 px-4 py-3 text-sm font-bold text-brand-700">{language === 'es' ? 'Iniciar sesión' : 'Log in'}</Link>
+            <Link to={accesoCuenta.to} onClick={() => setMenuOpen(false)} className="rounded-full border border-brand-300 px-4 py-3 text-sm font-bold text-brand-700">{accesoCuenta.label}</Link>
             <Link to="/agendar" onClick={() => setMenuOpen(false)} className="focus-ring inline-flex min-h-12 items-center justify-center gap-3 rounded-full bg-brand-gradient px-6 text-sm font-bold text-white shadow-[0_12px_28px_rgba(93,131,167,.28)]">
               {t.primary}<ArrowRight size={15} />
             </Link>

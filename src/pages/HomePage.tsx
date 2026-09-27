@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 const logo = '/src/assets/logos/1_(1).png';
 import { useContacto } from '@/hooks/useContacto';
+import { useSiteAuth } from '@/context/SiteAuthContext';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
 import { sendContact } from '@/lib/api/edgeFunctions';
 import { courses, images, professionals } from '@/data/homeData';
@@ -46,6 +47,13 @@ function AppButton({ children, href = '#contact', light = false, outline = false
 export default function HomePage() {
   const { language, setLanguage } = useSiteLanguage();
   const contactConfig = useContacto();
+  // Con sesión abierta, el acceso lleva al portal o al panel en vez de al login.
+  const { user: usuarioSitio } = useSiteAuth();
+  const accesoCuenta = !usuarioSitio
+    ? { to: '/iniciar-sesion', label: language === 'es' ? 'Iniciar sesión' : 'Log in' }
+    : usuarioSitio.rol === 'profesional'
+      ? { to: '/instructor', label: language === 'es' ? 'Mi panel' : 'My dashboard' }
+      : { to: '/portal-paciente', label: language === 'es' ? 'Mi portal' : 'My portal' };
   const [menuOpen, setMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState('top');
@@ -165,10 +173,10 @@ export default function HomePage() {
       <div className="container-wide flex h-[82px] items-center justify-between gap-5 transition-all duration-300 sm:h-[86px]">
         <a href="#top" aria-label="Psique Amor" className="focus-ring shrink-0"><img src={logo} alt="Psique Amor" className="w-[106px] sm:w-[124px]" /></a>
         <nav className="hidden items-center gap-5 lg:flex" aria-label="Primary navigation">{t.nav.map((item, i) => { const cls = `focus-ring relative py-3 text-[12px] font-semibold transition-colors after:absolute after:bottom-0 after:left-0 after:h-px after:bg-brand-600 after:transition-all ${active === navIds[i] ? 'text-brand-700 after:w-full' : 'text-ink/65 after:w-0 hover:text-brand-600 hover:after:w-full'}`; return navRoutes[i] ? <Link key={item} to={navRoutes[i]} className={cls}>{item}</Link> : <a key={item} href={`#${navIds[i]}`} className={cls}>{item}</a>; })}</nav>
-        <div className="hidden items-center gap-3 lg:flex"><div className="flex gap-1 rounded-full bg-brand-50 p-1 text-[10px] font-bold"><button onClick={() => setLanguage('es')} className={`rounded-full px-2 py-1 ${language === 'es' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>ES</button><button onClick={() => setLanguage('en')} className={`rounded-full px-2 py-1 ${language === 'en' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>EN</button></div><Link to="/iniciar-sesion" className="text-xs font-bold text-ink/65 hover:text-brand-600">{language === 'es' ? 'Iniciar sesión' : 'Log in'}</Link><AppButton href="/agendar">{t.primary}<ArrowRight size={15} /></AppButton></div>
+        <div className="hidden items-center gap-3 lg:flex"><div className="flex gap-1 rounded-full bg-brand-50 p-1 text-[10px] font-bold"><button onClick={() => setLanguage('es')} className={`rounded-full px-2 py-1 ${language === 'es' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>ES</button><button onClick={() => setLanguage('en')} className={`rounded-full px-2 py-1 ${language === 'en' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>EN</button></div><Link to={accesoCuenta.to} className="text-xs font-bold text-ink/65 hover:text-brand-600">{accesoCuenta.label}</Link><AppButton href="/agendar">{t.primary}<ArrowRight size={15} /></AppButton></div>
         <div className="flex items-center gap-2 lg:hidden"><div className="flex gap-1 rounded-full bg-brand-50 p-1 text-[10px] font-bold"><button onClick={() => setLanguage('es')} className={`rounded-full px-2 py-1 ${language === 'es' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>ES</button><button onClick={() => setLanguage('en')} className={`rounded-full px-2 py-1 ${language === 'en' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>EN</button></div><button onClick={() => setMenuOpen(!menuOpen)} className="focus-ring grid h-11 w-11 place-items-center rounded-full bg-brand-50 text-brand-700" aria-label={language === 'es' ? (menuOpen ? 'Cerrar menú' : 'Abrir menú') : menuOpen ? 'Close menu' : 'Open menu'}>{menuOpen ? <X size={20} /> : <Menu size={20} />}</button></div>
       </div>
-      <div className={`lg:hidden ${menuOpen ? 'max-h-[460px] border-t border-brand-100' : 'max-h-0'} overflow-hidden bg-white transition-all duration-500`}><nav className="container-wide flex flex-col gap-1 py-4">{t.nav.map((item, i) => navRoutes[i] ? <Link key={item} to={navRoutes[i]} onClick={() => setMenuOpen(false)} className="focus-ring rounded-xl px-4 py-3 text-sm font-semibold text-ink/75 hover:bg-brand-50 hover:text-brand-700">{item}</Link> : <a key={item} href={`#${navIds[i]}`} onClick={(e) => { e.preventDefault(); scrollTo(navIds[i]); }} className="focus-ring rounded-xl px-4 py-3 text-sm font-semibold text-ink/75 hover:bg-brand-50 hover:text-brand-700">{item}</a>)}<div className="mt-3 flex flex-wrap gap-3 border-t border-brand-100 pt-4"><Link to="/iniciar-sesion" onClick={() => setMenuOpen(false)} className="rounded-full border border-brand-300 px-4 py-3 text-sm font-bold text-brand-700">{language === 'es' ? 'Iniciar sesión' : 'Log in'}</Link><AppButton href="/agendar" onClick={() => setMenuOpen(false)}>{t.primary}<ArrowRight size={15} /></AppButton></div></nav></div>
+      <div className={`lg:hidden ${menuOpen ? 'max-h-[460px] border-t border-brand-100' : 'max-h-0'} overflow-hidden bg-white transition-all duration-500`}><nav className="container-wide flex flex-col gap-1 py-4">{t.nav.map((item, i) => navRoutes[i] ? <Link key={item} to={navRoutes[i]} onClick={() => setMenuOpen(false)} className="focus-ring rounded-xl px-4 py-3 text-sm font-semibold text-ink/75 hover:bg-brand-50 hover:text-brand-700">{item}</Link> : <a key={item} href={`#${navIds[i]}`} onClick={(e) => { e.preventDefault(); scrollTo(navIds[i]); }} className="focus-ring rounded-xl px-4 py-3 text-sm font-semibold text-ink/75 hover:bg-brand-50 hover:text-brand-700">{item}</a>)}<div className="mt-3 flex flex-wrap gap-3 border-t border-brand-100 pt-4"><Link to={accesoCuenta.to} onClick={() => setMenuOpen(false)} className="rounded-full border border-brand-300 px-4 py-3 text-sm font-bold text-brand-700">{accesoCuenta.label}</Link><AppButton href="/agendar" onClick={() => setMenuOpen(false)}>{t.primary}<ArrowRight size={15} /></AppButton></div></nav></div>
     </header>
 
     <main>
