@@ -54,7 +54,7 @@ export default function SiteFooter() {
           </div>
         </div>
         <div className="mt-14 flex flex-col justify-between gap-4 border-t border-white/10 pt-6 text-xs text-white/45 sm:flex-row">
-          <span>© 2024 Psique Amor</span>
+          <span>© {new Date().getFullYear()} Psique Amor</span>
           <div className="flex flex-wrap gap-5">
             <a href="/#contact" className="hover:text-white">{t.privacy}</a>
             <a href="/#contact" className="hover:text-white">{t.terms}</a>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, Shield, FileText } from 'lucide-react';
 import SiteHeader from '@/components/site/SiteHeader';
@@ -136,7 +136,10 @@ export default function LegalPage() {
   const t = content[language];
   // /legal?seccion=privacidad abre directamente la política de privacidad.
   const [params] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<Tab>(params.get('seccion') === 'privacidad' ? 'privacidad' : 'terminos');
+  const seccionUrl: Tab = params.get('seccion') === 'privacidad' ? 'privacidad' : 'terminos';
+  const [activeTab, setActiveTab] = useState<Tab>(seccionUrl);
+  // Si se navega entre /legal y /legal?seccion=privacidad sin recargar (p. ej. desde el pie), seguir la URL.
+  useEffect(() => setActiveTab(seccionUrl), [seccionUrl]);
   const section = t[activeTab];
 
   return (

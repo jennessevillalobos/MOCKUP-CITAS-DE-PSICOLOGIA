@@ -57,8 +57,45 @@ export default function HomePage() {
   const [trampa, setTrampa] = useState('');
   
   // Estado para los datos conectados a Supabase (con fallback a mocks)
-  const [dbProfessionals, setDbProfessionals] = useState<Array<(typeof professionals)[number] & { slug?: string }>>(professionals);
-  const [dbCourses, setDbCourses] = useState<Array<(typeof courses)[number] & { slug?: string }>>(courses);
+  // La base decide QUÉ se muestra (y la foto); los textos salen del catálogo
+  // bilingüe del sitio cuando existe, para respetar el idioma elegido.
+  const [profsBase, setProfsBase] = useState<Array<{ slug: string; nombre: string | null; foto: string | null; especialidad: string | null; descripcion: string | null }> | null>(null);
+  const [cursosBase, setCursosBase] = useState<Array<{ slug: string; nombre: string; descripcion: string | null; imagen: string | null }> | null>(null);
+  const dbProfessionals = useMemo<Array<(typeof professionals)[number] & { slug?: string }>>(() => {
+    if (!profsBase) {
+      return professionals.map((p, i) => {
+        const local = PROFESIONALES_PUBLICOS[i];
+        return local ? { ...p, slug: local.key, specialty: local.specialty[language], description: local.description[language], modality: local.modality[language] } : p;
+      });
+    }
+    return profsBase.map((p) => {
+      const local = PROFESIONALES_PUBLICOS.find((l) => l.key === p.slug);
+      return {
+        slug: p.slug,
+        name: p.nombre || local?.name || 'Profesional',
+        specialty: local?.specialty[language] ?? p.especialidad ?? (language === 'es' ? 'Psicología' : 'Psychology'),
+        description: local?.description[language] ?? p.descripcion ?? '',
+        modality: local?.modality[language] ?? (language === 'es' ? 'Online y presencial' : 'Online and in-person'),
+        image: p.foto || local?.image || images.professionalOne,
+      };
+    });
+  }, [profsBase, language]);
+  const dbCourses = useMemo<Array<(typeof courses)[number] & { slug?: string }>>(() => {
+    const desdeCatalogo = (slug: string, respaldo: { nombre: string; descripcion: string | null; imagen: string | null }) => {
+      const local = CURSOS_PUBLICOS.find((c) => c.key === slug);
+      return {
+        slug,
+        title: local?.title[language] ?? respaldo.nombre,
+        category: (local?.category[language] ?? (language === 'es' ? 'Curso' : 'Course')).toUpperCase(),
+        description: local?.description[language] ?? respaldo.descripcion ?? '',
+        duration: local?.duration[language] ?? (language === 'es' ? 'A tu ritmo' : 'At your own pace'),
+        modality: local?.modality?.[language] ?? 'Online',
+        image: respaldo.imagen || local?.image || images.courseOne,
+      };
+    };
+    if (!cursosBase) return CURSOS_PUBLICOS.slice(0, 3).map((c) => desdeCatalogo(c.key, { nombre: c.title.es, descripcion: null, imagen: c.image }));
+    return cursosBase.map((c) => desdeCatalogo(c.slug, c));
+  }, [cursosBase, language]);
 
   const t = translations[language];
 
@@ -80,32 +117,10 @@ export default function HomePage() {
       try {
         // Vista pública (migración 012): nombre y foto sin exponer `usuarios`.
         const { data: profs } = await supabase.from('profesionales_publicos').select('slug, nombre, foto, especialidad, descripcion').order('id').limit(3);
-        if (profs && profs.length > 0) {
-          setDbProfessionals(profs.map((p) => {
-            const local = PROFESIONALES_PUBLICOS.find((l) => l.key === p.slug);
-            return {
-              slug: p.slug,
-              name: p.nombre || 'Profesional',
-              specialty: p.especialidad || 'Psicología',
-              description: p.descripcion || '',
-              modality: local?.modality.es ?? 'Online y presencial',
-              image: p.foto || images.professionalOne
-            };
-          }));
-        }
+        if (profs && profs.length > 0) setProfsBase(profs);
 
         const { data: cur } = await supabase.from('cursos').select('*').eq('estado', 'publicado').limit(3);
-        if (cur && cur.length > 0) {
-          setDbCourses(cur.map((c) => ({
-            slug: c.slug,
-            title: c.nombre,
-            category: 'CURSO',
-            description: c.descripcion || '',
-            duration: 'A tu ritmo',
-            modality: 'Online',
-            image: c.imagen || images.courseOne
-          })));
-        }
+        if (cur && cur.length > 0) setCursosBase(cur);
       } catch (e) {
         console.error('Error fetching data from Supabase:', e);
       }
@@ -151,9 +166,9 @@ export default function HomePage() {
         <a href="#top" aria-label="Psique Amor" className="focus-ring shrink-0"><img src={logo} alt="Psique Amor" className="w-[106px] sm:w-[124px]" /></a>
         <nav className="hidden items-center gap-5 lg:flex" aria-label="Primary navigation">{t.nav.map((item, i) => { const cls = `focus-ring relative py-3 text-[12px] font-semibold transition-colors after:absolute after:bottom-0 after:left-0 after:h-px after:bg-brand-600 after:transition-all ${active === navIds[i] ? 'text-brand-700 after:w-full' : 'text-ink/65 after:w-0 hover:text-brand-600 hover:after:w-full'}`; return navRoutes[i] ? <Link key={item} to={navRoutes[i]} className={cls}>{item}</Link> : <a key={item} href={`#${navIds[i]}`} className={cls}>{item}</a>; })}</nav>
         <div className="hidden items-center gap-3 lg:flex"><div className="flex gap-1 rounded-full bg-brand-50 p-1 text-[10px] font-bold"><button onClick={() => setLanguage('es')} className={`rounded-full px-2 py-1 ${language === 'es' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>ES</button><button onClick={() => setLanguage('en')} className={`rounded-full px-2 py-1 ${language === 'en' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>EN</button></div><Link to="/iniciar-sesion" className="text-xs font-bold text-ink/65 hover:text-brand-600">{language === 'es' ? 'Iniciar sesión' : 'Log in'}</Link><AppButton href="/agendar">{t.primary}<ArrowRight size={15} /></AppButton></div>
-        <div className="flex items-center gap-2 lg:hidden"><div className="flex gap-1 rounded-full bg-brand-50 p-1 text-[10px] font-bold"><button onClick={() => setLanguage('es')} className={`rounded-full px-2 py-1 ${language === 'es' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>ES</button><button onClick={() => setLanguage('en')} className={`rounded-full px-2 py-1 ${language === 'en' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>EN</button></div><button onClick={() => setMenuOpen(!menuOpen)} className="focus-ring grid h-11 w-11 place-items-center rounded-full bg-brand-50 text-brand-700" aria-label={menuOpen ? 'Close menu' : 'Open menu'}>{menuOpen ? <X size={20} /> : <Menu size={20} />}</button></div>
+        <div className="flex items-center gap-2 lg:hidden"><div className="flex gap-1 rounded-full bg-brand-50 p-1 text-[10px] font-bold"><button onClick={() => setLanguage('es')} className={`rounded-full px-2 py-1 ${language === 'es' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>ES</button><button onClick={() => setLanguage('en')} className={`rounded-full px-2 py-1 ${language === 'en' ? 'bg-white text-brand-700 shadow-sm' : 'text-ink/45'}`}>EN</button></div><button onClick={() => setMenuOpen(!menuOpen)} className="focus-ring grid h-11 w-11 place-items-center rounded-full bg-brand-50 text-brand-700" aria-label={language === 'es' ? (menuOpen ? 'Cerrar menú' : 'Abrir menú') : menuOpen ? 'Close menu' : 'Open menu'}>{menuOpen ? <X size={20} /> : <Menu size={20} />}</button></div>
       </div>
-      <div className={`lg:hidden ${menuOpen ? 'max-h-[460px] border-t border-brand-100' : 'max-h-0'} overflow-hidden bg-white transition-all duration-500`}><nav className="container-wide flex flex-col gap-1 py-4">{t.nav.map((item, i) => navRoutes[i] ? <Link key={item} to={navRoutes[i]} onClick={() => setMenuOpen(false)} className="focus-ring rounded-xl px-4 py-3 text-sm font-semibold text-ink/75 hover:bg-brand-50 hover:text-brand-700">{item}</Link> : <a key={item} onClick={() => scrollTo(navIds[i])} className="focus-ring rounded-xl px-4 py-3 text-sm font-semibold text-ink/75 hover:bg-brand-50 hover:text-brand-700">{item}</a>)}<div className="mt-3 flex flex-wrap gap-3 border-t border-brand-100 pt-4"><Link to="/iniciar-sesion" onClick={() => setMenuOpen(false)} className="rounded-full border border-brand-300 px-4 py-3 text-sm font-bold text-brand-700">{language === 'es' ? 'Iniciar sesión' : 'Log in'}</Link><AppButton href="/agendar" onClick={() => setMenuOpen(false)}>{t.primary}<ArrowRight size={15} /></AppButton></div></nav></div>
+      <div className={`lg:hidden ${menuOpen ? 'max-h-[460px] border-t border-brand-100' : 'max-h-0'} overflow-hidden bg-white transition-all duration-500`}><nav className="container-wide flex flex-col gap-1 py-4">{t.nav.map((item, i) => navRoutes[i] ? <Link key={item} to={navRoutes[i]} onClick={() => setMenuOpen(false)} className="focus-ring rounded-xl px-4 py-3 text-sm font-semibold text-ink/75 hover:bg-brand-50 hover:text-brand-700">{item}</Link> : <a key={item} href={`#${navIds[i]}`} onClick={(e) => { e.preventDefault(); scrollTo(navIds[i]); }} className="focus-ring rounded-xl px-4 py-3 text-sm font-semibold text-ink/75 hover:bg-brand-50 hover:text-brand-700">{item}</a>)}<div className="mt-3 flex flex-wrap gap-3 border-t border-brand-100 pt-4"><Link to="/iniciar-sesion" onClick={() => setMenuOpen(false)} className="rounded-full border border-brand-300 px-4 py-3 text-sm font-bold text-brand-700">{language === 'es' ? 'Iniciar sesión' : 'Log in'}</Link><AppButton href="/agendar" onClick={() => setMenuOpen(false)}>{t.primary}<ArrowRight size={15} /></AppButton></div></nav></div>
     </header>
 
     <main>
@@ -185,7 +200,7 @@ export default function HomePage() {
     ]} /><FooterColumn title={t.footerResources} links={[
       { label: language === 'es' ? 'Cursos' : 'Courses', to: '/cursos' }, { label: 'Videos', to: '/recursos' },
       { label: language === 'es' ? 'Libros digitales' : 'Digital books', to: '/tienda' }, { label: 'Aula virtual', to: '/aula-virtual' },
-    ]} /><div><h3 className="text-sm font-bold">{t.footerContact}</h3><div className="mt-5 space-y-3 text-sm leading-6 text-white/60"><p>{contactConfig.phone}</p><p>{contactConfig.email}</p><p>{contactConfig.location}</p><p>{contactConfig.hours}</p></div></div></div><div className="mt-14 flex flex-col justify-between gap-4 border-t border-white/10 pt-6 text-xs text-white/45 sm:flex-row"><span>© 2024 Psique Amor</span><div className="flex flex-wrap gap-5"><Link to="/legal?seccion=privacidad" className="hover:text-white">{t.privacy}</Link><Link to="/legal" className="hover:text-white">{t.terms}</Link><span>ES | EN</span></div></div></div></footer>
+    ]} /><div><h3 className="text-sm font-bold">{t.footerContact}</h3><div className="mt-5 space-y-3 text-sm leading-6 text-white/60"><p>{contactConfig.phone}</p><p>{contactConfig.email}</p><p>{contactConfig.location}</p><p>{contactConfig.hours}</p></div></div></div><div className="mt-14 flex flex-col justify-between gap-4 border-t border-white/10 pt-6 text-xs text-white/45 sm:flex-row"><span>© {new Date().getFullYear()} Psique Amor</span><div className="flex flex-wrap gap-5"><Link to="/legal?seccion=privacidad" className="hover:text-white">{t.privacy}</Link><Link to="/legal" className="hover:text-white">{t.terms}</Link><span>ES | EN</span></div></div></div></footer>
     <a href={contactConfig.whatsapp} aria-label={t.talk} className="group fixed bottom-5 right-5 z-40 grid h-14 w-14 place-items-center rounded-full border-4 border-white bg-[#25D366] text-white shadow-lift transition hover:scale-105 sm:bottom-7 sm:right-7"><MessageCircle size={25} fill="currentColor" /><span className="pointer-events-none absolute right-16 whitespace-nowrap rounded-full bg-brand-900 px-3 py-2 text-xs font-bold opacity-0 shadow-soft transition group-hover:opacity-100">{t.talk}</span></a>
   </div>;
 }

@@ -57,7 +57,8 @@ export async function cargarPerfil(): Promise<Result<PerfilReal | null>> {
     foto: usuario.data?.foto ?? null,
     idioma: usuario.data?.idioma ?? null,
     preferencias: (usuario.data?.preferencias ?? {}) as PreferenciasUsuario,
-    esProfesional: !!profesional.data || nombresRol.includes('instructor') || nombresRol.includes('administrador'),
+    // El rol administrador NO convierte la cuenta en profesional: su panel es /admin.
+    esProfesional: !!profesional.data || nombresRol.includes('instructor'),
     profesionalId: profesional.data?.id ?? null,
     sobreMi: profesional.data?.descripcion ?? null,
   });
