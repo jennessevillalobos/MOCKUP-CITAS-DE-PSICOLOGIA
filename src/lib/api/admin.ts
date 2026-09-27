@@ -560,3 +560,8 @@ export async function misSesionesAdmin(): Promise<Result<SesionAdmin[]>> {
 export function cerrarSesionAdmin(sesionId: string) {
   return rpcAdmin<null>('admin_cerrar_sesion', { p_sesion_id: sesionId });
 }
+
+// Datos bancarios para transferencias (migración 051).
+export function guardarTransferenciaAdmin(valor: { banco: string; titular: string; numero: string; adicional: string }) {
+  return rpcAdmin<null>('admin_guardar_transferencia', { p_valor: valor });
+}

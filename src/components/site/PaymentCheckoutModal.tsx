@@ -6,6 +6,7 @@ import { createStripeSession, createPaypalOrder } from '@/lib/api/edgeFunctions'
 import { reportarTransferencia, ordenDeCita } from '@/lib/api/pagos';
 import { reportarPagoCurso } from '@/lib/api/cursosEstudiante';
 import { reportarPagoProducto } from '@/lib/api/productosEstudiante';
+import { useDatosTransferencia } from '@/hooks/useContacto';
 
 interface PaymentCheckoutModalProps {
   // En unidades de la moneda (USD), no centavos.
@@ -28,7 +29,7 @@ const text = {
     methods: { card: 'Tarjeta', paypal: 'PayPal', transfer: 'Transferencia' },
     card: 'Datos de la tarjeta', cardNumber: 'Número de tarjeta', cardName: 'Nombre en la tarjeta', expiry: 'MM/AA', cvv: 'CVV',
     transferInfo: 'Datos bancarios',
-    bank: 'Banco', accountInfo: 'Cuenta corriente a nombre de Clínica PsiqueAmor', accountNum: '0102-0304-0506-0708',
+    bank: 'Banco', holder: 'Titular', accountNum: 'Cuenta',
     uploadReceipt: 'Sube tu comprobante (PDF, JPG, PNG)', upload: 'Seleccionar archivo', uploadOk: 'Archivo seleccionado', uploadingMsg: 'Subiendo comprobante...',
     simulated: 'Pago protegido por SSL — procesado mediante pasarela segura.',
     pay: 'Pagar', reportPayment: 'Reportar pago', processing: 'Procesando...',
@@ -48,7 +49,7 @@ const text = {
     methods: { card: 'Card', paypal: 'PayPal', transfer: 'Transfer' },
     card: 'Card details', cardNumber: 'Card number', cardName: 'Name on card', expiry: 'MM/YY', cvv: 'CVV',
     transferInfo: 'Bank details',
-    bank: 'Bank', accountInfo: 'Checking account - PsiqueAmor Clinic', accountNum: '0102-0304-0506-0708',
+    bank: 'Bank', holder: 'Account holder', accountNum: 'Account',
     uploadReceipt: 'Upload your receipt (PDF, JPG, PNG)', upload: 'Select file', uploadOk: 'File selected', uploadingMsg: 'Uploading receipt...',
     simulated: 'SSL Secured Payment — processed via secure gateway.',
     pay: 'Pay', reportPayment: 'Report payment', processing: 'Processing...',
@@ -68,6 +69,8 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
   const { language } = useSiteLanguage();
   const t = text[language];
   const { esSesionReal } = useSiteAuth();
+  // Datos bancarios editables en Admin → Configuración (migración 051).
+  const banco = useDatosTransferencia();
 
   // Con la base real, tarjeta (Stripe) y PayPal solo se ofrecen cuando están
   // configurados (VITE_PAGOS_EN_LINEA=true) y para citas; si no, solo transferencia.
@@ -268,19 +271,22 @@ export default function PaymentCheckoutModal({ monto, concepto, moneda = 'USD', 
                         {t.transferInfo}
                       </h4>
                       <dl className="grid gap-2 text-sm">
-                        <div className="flex justify-between border-b border-brand-100 pb-2">
+                        <div className="flex justify-between gap-3 border-b border-brand-100 pb-2">
                           <dt className="text-ink/60">{t.bank}:</dt>
-                          <dd className="font-semibold text-ink">Zelle / BOFA</dd>
+                          <dd className="text-right font-semibold text-ink">{banco.banco}</dd>
                         </div>
-                        <div className="flex justify-between border-b border-brand-100 pb-2">
-                          <dt className="text-ink/60">Info:</dt>
-                          <dd className="font-semibold text-ink text-right">{t.accountInfo}</dd>
+                        <div className="flex justify-between gap-3 border-b border-brand-100 pb-2">
+                          <dt className="text-ink/60">{t.holder}:</dt>
+                          <dd className="text-right font-semibold text-ink">{banco.titular}</dd>
                         </div>
-                        <div className="flex justify-between">
-                          <dt className="text-ink/60">Account:</dt>
-                          <dd className="font-mono font-semibold text-ink">{t.accountNum}</dd>
+                        <div className="flex justify-between gap-3">
+                          <dt className="text-ink/60">{t.accountNum}:</dt>
+                          <dd className="break-all text-right font-mono font-semibold text-ink">{banco.numero}</dd>
                         </div>
                       </dl>
+                      {banco.adicional && (
+                        <p className="mt-3 whitespace-pre-wrap border-t border-brand-100 pt-3 text-xs leading-5 text-ink/65">{banco.adicional}</p>
+                      )}
                     </div>
                     
                     <label className="block">

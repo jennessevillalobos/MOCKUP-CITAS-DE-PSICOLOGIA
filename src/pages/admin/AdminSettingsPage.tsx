@@ -15,10 +15,10 @@ import { ALL_ROLES, ALL_PERMISOS, ROLE_PERMISOS, type UserRole, type Permiso } f
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import { useDialogo } from '@/context/DialogoContext';
 import AvisoFlotante from '@/components/admin/ui/AvisoFlotante';
-import { useContacto, refrescarContacto } from '@/hooks/useContacto';
+import { useContacto, refrescarContacto, useDatosTransferencia, refrescarConfiguracion } from '@/hooks/useContacto';
 import { exportarCSV } from '@/data/admin/reportsData';
 import {
-  guardarContactoAdmin, cargarAuditoriaAdmin, misSesionesAdmin, cerrarSesionAdmin, type SesionAdmin,
+  guardarContactoAdmin, guardarTransferenciaAdmin, cargarAuditoriaAdmin, misSesionesAdmin, cerrarSesionAdmin, type SesionAdmin,
 } from '@/lib/api/admin';
 
 // Campos de contacto editables (Configuración → General, migración 049).
@@ -124,6 +124,24 @@ export default function AdminSettingsPage() {
     setContactoTocado(false);
     refrescarContacto();
     mostrarAviso(lang === 'es' ? 'Datos de contacto guardados: ya se ven en el sitio.' : 'Contact details saved: now live on the site.');
+  }
+
+  // Datos bancarios para transferencias (los ve el paciente al pagar).
+  const bancoActual = useDatosTransferencia();
+  const [banco, setBanco] = useState({ ...bancoActual });
+  const [bancoTocado, setBancoTocado] = useState(false);
+  useEffect(() => {
+    if (!bancoTocado) setBanco({ ...bancoActual });
+  }, [bancoActual, bancoTocado]);
+  const [guardandoBanco, setGuardandoBanco] = useState(false);
+  async function guardarBanco() {
+    setGuardandoBanco(true);
+    const res = await guardarTransferenciaAdmin(banco);
+    setGuardandoBanco(false);
+    if (res.error) return mostrarAviso(res.error.message, true);
+    setBancoTocado(false);
+    refrescarConfiguracion('transferencia');
+    mostrarAviso(lang === 'es' ? 'Datos bancarios guardados: ya los ven los pacientes al pagar.' : 'Bank details saved: patients now see them when paying.');
   }
 
   // Auditoría y sesiones reales.
@@ -286,6 +304,60 @@ export default function AdminSettingsPage() {
                 <Save size={15} />
                 {t.save}
               </button>
+              <div className="space-y-4 border-t border-brand-100 pt-5">
+                <div>
+                  <p className="text-sm font-bold text-ink">{lang === 'es' ? 'Datos para transferencias' : 'Bank transfer details'}</p>
+                  <p className="mt-1 text-xs text-ink/50">
+                    {lang === 'es'
+                      ? 'Los ve el paciente en la ventana de pago al reservar una cita, pagar un curso o comprar un libro.'
+                      : 'Patients see them in the payment window when booking, paying for a course or buying a book.'}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  {([
+                    ['banco', lang === 'es' ? 'Banco o plataforma' : 'Bank or platform', 'Banesco / Zelle'],
+                    ['titular', lang === 'es' ? 'Titular' : 'Account holder', 'Clínica PsiqueAmor'],
+                    ['numero', lang === 'es' ? 'Número de cuenta o correo' : 'Account number or email', '0134-…'],
+                  ] as const).map(([campo, etiqueta, ayuda]) => (
+                    <div key={campo}>
+                      <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">{etiqueta}</label>
+                      <input
+                        value={banco[campo]}
+                        placeholder={ayuda}
+                        onChange={(e) => {
+                          setBancoTocado(true);
+                          setBanco((prev) => ({ ...prev, [campo]: e.target.value }));
+                        }}
+                        className="h-10 w-full rounded-xl border border-brand-200 px-3 text-sm text-ink outline-none"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-ink/40">
+                    {lang === 'es' ? 'Otros métodos o instrucciones (opcional)' : 'Other methods or instructions (optional)'}
+                  </label>
+                  <textarea
+                    value={banco.adicional}
+                    rows={3}
+                    maxLength={600}
+                    placeholder={lang === 'es' ? 'Pago móvil: 0412-000-0000 · CI V-00.000.000 · Banco de Venezuela' : 'Mobile payment: …'}
+                    onChange={(e) => {
+                      setBancoTocado(true);
+                      setBanco((prev) => ({ ...prev, adicional: e.target.value }));
+                    }}
+                    className="w-full rounded-xl border border-brand-200 px-3 py-2 text-sm text-ink outline-none"
+                  />
+                </div>
+                <button
+                  onClick={() => void guardarBanco()}
+                  disabled={guardandoBanco || !bancoTocado}
+                  className="flex items-center gap-2 rounded-xl bg-brand-gradient px-4 py-2.5 text-sm font-bold text-white shadow-soft hover:opacity-90 disabled:opacity-50"
+                >
+                  <Save size={15} />
+                  {t.save}
+                </button>
+              </div>
               <div className="rounded-2xl bg-brand-50/60 px-4 py-3 text-xs leading-relaxed text-ink/55">
                 {lang === 'es'
                   ? `Próximamente editable: nombre del sitio (${general.nombre}), eslogan, logo, colores de marca, idiomas (ES/EN), moneda principal (${general.monedaPrincipal}) y zona horaria (${general.zonaHoraria}). Hoy están definidos en el código del sitio.`
