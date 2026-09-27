@@ -15,6 +15,7 @@ import {
   BarChart3,
   Settings,
   MessageSquare,
+  Inbox,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -66,6 +67,7 @@ export const adminNavGroups: AdminNavGroup[] = [
     title: 'Sistema',
     items: [
       { label: 'Notificaciones', path: '/admin/notificaciones', icon: Bell, disponible: true },
+      { label: 'Mensajes de contacto', path: '/admin/mensajes', icon: Inbox, disponible: true },
       { label: 'Reseñas', path: '/admin/reseñas', icon: MessageSquare, disponible: true },
       { label: 'Reportes', path: '/admin/reportes', icon: BarChart3, disponible: true },
       { label: 'Configuración', path: '/admin/configuracion', icon: Settings, disponible: true },

@@ -1,11 +1,12 @@
-import { useState, type ReactNode } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { Menu, Search, Bell, LogOut, Lock, Languages } from 'lucide-react';
 import { useAdminAuth } from '@/context/AdminAuthContext';
 import { useAdminLanguage } from '@/context/AdminLanguageContext';
 import { adminT } from '@/i18n/adminTranslations';
 import { adminNavGroups } from '@/config/adminNav';
 import { useDialogo } from '@/context/DialogoContext';
+import { contarAvisosNoLeidos } from '@/lib/api/admin';
 
 const logo = '/src/assets/logos/1_(1).png';
 
@@ -17,12 +18,28 @@ function initials(nombreOCorreo: string) {
 }
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
-  const { user, logout } = useAdminAuth();
+  const { user, logout, esReal } = useAdminAuth();
   const { lang, toggle } = useAdminLanguage();
   const t = adminT[lang];
   const dialogo = useDialogo();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Campana: avisos sin leer del admin (se refresca al marcar y cada minuto).
+  const [noLeidos, setNoLeidos] = useState(0);
+  useEffect(() => {
+    if (!esReal || !user) return;
+    let vigente = true;
+    const actualizar = () => void contarAvisosNoLeidos().then((n) => vigente && setNoLeidos(n));
+    actualizar();
+    const intervalo = window.setInterval(actualizar, 60000);
+    window.addEventListener('avisos-admin', actualizar);
+    return () => {
+      vigente = false;
+      window.clearInterval(intervalo);
+      window.removeEventListener('avisos-admin', actualizar);
+    };
+  }, [esReal, user]);
 
   async function handleLogout() {
     if (!(await dialogo.confirmar(t.logoutConfirm))) return;
@@ -71,10 +88,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               <Languages size={16} />
               {t.langToggleLabel}
             </button>
-            <button className="relative rounded-lg p-2 text-ink/60 hover:bg-brand-50" aria-label={t.notifications}>
+            <Link to="/admin/notificaciones" className="relative rounded-lg p-2 text-ink/60 hover:bg-brand-50" aria-label={t.notifications} title={t.notifications}>
               <Bell size={18} />
-              <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-lilac-500 ring-2 ring-white" />
-            </button>
+              {esReal ? (
+                noLeidos > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white ring-2 ring-white">
+                    {noLeidos > 9 ? '9+' : noLeidos}
+                  </span>
+                )
+              ) : (
+                <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-lilac-500 ring-2 ring-white" />
+              )}
+            </Link>
             <div className="ml-1 flex items-center gap-2 border-l border-brand-100 pl-3">
               <span className="grid h-9 w-9 place-items-center rounded-full bg-brand-gradient text-sm font-semibold text-white">
                 {initials(user?.nombre || user?.correo || '?')}
@@ -160,7 +185,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             <div className="mx-5 my-4 rounded-2xl border border-white/15 bg-white/8 p-3">
               <p className="flex items-center gap-1.5 text-[11px] text-brand-100/70">
                 <Lock size={12} />
-                {t.demoData}
+                {esReal ? (lang === 'es' ? 'Conectado a la base real' : 'Connected to live data') : t.demoData}
               </p>
               <p className="mt-1 flex items-center gap-2 text-sm font-semibold text-white">
                 <span className="h-2 w-2 rounded-full bg-emerald-400" />

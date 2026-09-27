@@ -396,3 +396,90 @@ export function actualizarClaseVivoAdmin(
     p_cancelar: cambios.cancelar ?? false,
   });
 }
+
+// ── Reseñas, mensajes de contacto y avisos del admin (migración 046) ──
+
+export interface ResenaAdmin {
+  id: number;
+  paciente: string | null;
+  profesional: string | null;
+  servicio: string | null;
+  notaProfesional: number;
+  notaServicio: number;
+  comentario: string | null;
+  fecha: string;
+  estado: 'pendiente' | 'aprobado' | 'oculto';
+}
+
+export async function listarResenasAdmin(): Promise<Result<ResenaAdmin[]>> {
+  const res = await rpcAdmin<ResenaAdmin[] | null>('admin_resenas');
+  return res.error ? fail(res.error) : ok(res.data ?? []);
+}
+
+export function moderarResenaAdmin(id: number, estado: ResenaAdmin['estado']) {
+  return rpcAdmin<null>('admin_moderar_resena', { p_id: id, p_estado: estado });
+}
+
+export function eliminarResenaAdmin(id: number) {
+  return rpcAdmin<null>('admin_eliminar_resena', { p_id: id });
+}
+
+export type EstadoMensaje = 'nuevo' | 'leido' | 'respondido' | 'archivado';
+
+export interface MensajeContactoAdmin {
+  id: number;
+  nombre: string;
+  correo: string;
+  telefono: string | null;
+  asunto: string | null;
+  mensaje: string;
+  origen: 'home' | 'contacto';
+  idioma: 'es' | 'en';
+  estado: EstadoMensaje;
+  correoEnviado: boolean | null;
+  correoError: string | null;
+  fecha: string;
+}
+
+export async function listarMensajesAdmin(): Promise<Result<MensajeContactoAdmin[]>> {
+  const res = await rpcAdmin<MensajeContactoAdmin[] | null>('admin_mensajes');
+  return res.error ? fail(res.error) : ok(res.data ?? []);
+}
+
+export function estadoMensajeAdmin(id: number, estado: EstadoMensaje) {
+  return rpcAdmin<null>('admin_estado_mensaje', { p_id: id, p_estado: estado });
+}
+
+export interface AvisoAdmin {
+  id: number;
+  tipo: 'cita' | 'evaluacion' | 'curso' | 'vivo' | 'reseña' | 'pago' | 'mensaje';
+  textoEs: string;
+  textoEn: string;
+  link: string | null;
+  leida: boolean;
+  fecha: string;
+}
+
+// Notificaciones propias del admin (las generan los triggers de la 046).
+export async function cargarAvisosAdmin(): Promise<Result<AvisoAdmin[]>> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return notConfigured();
+  const { data, error } = await supabase
+    .from('notificaciones')
+    .select('id, tipo, texto_es, texto_en, link, leida, creado_en')
+    .order('creado_en', { ascending: false })
+    .limit(100);
+  if (error) return fail(toServiceError(error));
+  return ok(
+    (data ?? []).map((n) => ({
+      id: n.id, tipo: n.tipo, textoEs: n.texto_es, textoEn: n.texto_en, link: n.link, leida: n.leida, fecha: n.creado_en,
+    }))
+  );
+}
+
+export async function contarAvisosNoLeidos(): Promise<number> {
+  const supabase = getSupabaseClient();
+  if (!supabase || !isSupabaseConfigured()) return 0;
+  const { count } = await supabase.from('notificaciones').select('id', { count: 'exact', head: true }).eq('leida', false);
+  return count ?? 0;
+}

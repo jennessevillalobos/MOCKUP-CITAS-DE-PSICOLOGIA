@@ -60,6 +60,7 @@ import AdminSettingsPage from '@/pages/admin/AdminSettingsPage';
 import AdminAssessmentsPage from '@/pages/admin/AdminAssessmentsPage';
 import AdminReportsPage from '@/pages/admin/AdminReportsPage';
 import AdminReviewsPage from '@/pages/admin/AdminReviewsPage';
+import AdminMessagesPage from '@/pages/admin/AdminMessagesPage';
 import ProtectedAdminRoute from '@/components/admin/ProtectedAdminRoute';
 import { AdminAuthProvider } from '@/context/AdminAuthContext';
 import { AdminLanguageProvider } from '@/context/AdminLanguageContext';
@@ -412,6 +413,14 @@ function App() {
           element={
             <ProtectedAdminRoute>
               <AdminReportsPage />
+            </ProtectedAdminRoute>
+          }
+        />
+        <Route
+          path="/admin/mensajes"
+          element={
+            <ProtectedAdminRoute>
+              <AdminMessagesPage />
             </ProtectedAdminRoute>
           }
         />

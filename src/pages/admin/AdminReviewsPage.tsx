@@ -1,9 +1,21 @@
-import { useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { Star, Search, CheckCircle2, EyeOff, Trash2, MessageSquare, Filter } from 'lucide-react';
 import AdminLayout from '@/components/admin/AdminLayout';
 import StatusBadge from '@/components/admin/ui/StatusBadge';
 import { useAdminLanguage } from '@/context/AdminLanguageContext';
 import { useDialogo } from '@/context/DialogoContext';
+import { useAdminAuth } from '@/context/AdminAuthContext';
+import AvisoFlotante from '@/components/admin/ui/AvisoFlotante';
+import { listarResenasAdmin, moderarResenaAdmin, eliminarResenaAdmin, type ResenaAdmin } from '@/lib/api/admin';
+
+// Estados de la base (036) ↔ estados de la pantalla.
+const ESTADO_DESDE_BASE: Record<ResenaAdmin['estado'], EstadoReseña> = { pendiente: 'pendiente', aprobado: 'aprobada', oculto: 'oculta' };
+const ESTADO_A_BASE: Record<EstadoReseña, ResenaAdmin['estado']> = { pendiente: 'pendiente', aprobada: 'aprobado', oculta: 'oculto' };
+
+function fechaLocal(iso: string) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 type EstadoReseña = 'pendiente' | 'aprobada' | 'oculta';
 type TonoBadge = 'positivo' | 'neutro' | 'negativo';
@@ -75,14 +87,39 @@ export default function AdminReviewsPage() {
   const t = text[lang];
   const dialogo = useDialogo();
 
-  const [reseñas, setReseñas] = useState<Reseña[]>(demoReseñas);
+  const { esReal } = useAdminAuth();
+  const [reseñas, setReseñas] = useState<Reseña[]>(() => (esReal ? [] : demoReseñas));
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<{ texto: string; error?: boolean } | null>(null);
+  function mostrarAviso(texto: string, error = false) {
+    setAviso({ texto, error });
+    window.setTimeout(() => setAviso(null), 4000);
+  }
+
+  // Con Supabase: reseñas reales (solo pacientes con cita completada pueden dejarlas).
+  const recargar = useCallback(async () => {
+    if (!esReal) return;
+    const res = await listarResenasAdmin();
+    if (res.error) return setErrorCarga(res.error.message);
+    setErrorCarga(null);
+    setReseñas(
+      res.data.map((r) => ({
+        id: String(r.id), paciente: r.paciente ?? '—', profesional: r.profesional ?? '—',
+        servicio: `${r.servicio ?? 'Servicio'} · servicio ${r.notaServicio}/5`, estrellas: r.notaProfesional,
+        comentario: r.comentario ?? '', fecha: fechaLocal(r.fecha), estado: ESTADO_DESDE_BASE[r.estado],
+      }))
+    );
+  }, [esReal]);
+  useEffect(() => {
+    void recargar();
+  }, [recargar]);
   const [buscar, setBuscar] = useState('');
   const [filtroEstado, setFiltroEstado] = useState<EstadoReseña | 'todos'>('todos');
 
   const kpiTotal = reseñas.length;
   const kpiPendiente = reseñas.filter(r => r.estado === 'pendiente').length;
   const kpiAprobadas = reseñas.filter(r => r.estado === 'aprobada').length;
-  const kpiPromedio = (reseñas.reduce((acc, r) => acc + r.estrellas, 0) / reseñas.length).toFixed(1);
+  const kpiPromedio = reseñas.length ? (reseñas.reduce((acc, r) => acc + r.estrellas, 0) / reseñas.length).toFixed(1) : '—';
 
   const reseñasFiltradas = useMemo(() => {
     const q = buscar.toLowerCase();
@@ -93,12 +130,24 @@ export default function AdminReviewsPage() {
     });
   }, [reseñas, buscar, filtroEstado]);
 
-  function cambiarEstado(id: string, nuevo: EstadoReseña) {
+  async function cambiarEstado(id: string, nuevo: EstadoReseña) {
+    if (esReal) {
+      const res = await moderarResenaAdmin(Number(id), ESTADO_A_BASE[nuevo]);
+      if (res.error) return mostrarAviso(res.error.message, true);
+      mostrarAviso(nuevo === 'aprobada' ? 'Reseña aprobada: ya se ve en la página de la profesional.' : 'Reseña oculta: deja de verse en el sitio.');
+      return recargar();
+    }
     setReseñas(prev => prev.map(r => r.id === id ? { ...r, estado: nuevo } : r));
   }
 
   async function eliminar(id: string) {
     if (!(await dialogo.confirmar(t.confirmEliminar, { peligro: true }))) return;
+    if (esReal) {
+      const res = await eliminarResenaAdmin(Number(id));
+      if (res.error) return mostrarAviso(res.error.message, true);
+      mostrarAviso('Reseña eliminada.');
+      return recargar();
+    }
     setReseñas(prev => prev.filter(r => r.id !== id));
   }
 
@@ -107,9 +156,19 @@ export default function AdminReviewsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
-          <p className="mt-1 text-sm text-ink/50">{t.subtitle}</p>
+          <p className="mt-1 text-sm text-ink/50">
+            {esReal ? (lang === 'es' ? 'Revisa, aprueba u oculta los comentarios de los pacientes · datos reales' : 'Review, approve or hide patient comments · live data') : t.subtitle}
+          </p>
         </div>
       </div>
+      {errorCarga && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCarga}</p>}
+      <AvisoFlotante aviso={aviso} />
+      {esReal && (
+        <p className="rounded-2xl bg-brand-50 px-4 py-3 text-xs text-ink/60">
+          Solo el paciente de una cita completada puede dejar una reseña (una por cita). Entran como pendientes y solo las aprobadas se muestran en el sitio.
+          Recibirás un aviso en la campana cada vez que llegue una nueva.
+        </p>
+      )}
 
       {/* KPIs */}
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -201,7 +260,7 @@ export default function AdminReviewsPage() {
                       <div className="flex items-center gap-2">
                         {r.estado !== 'aprobada' && (
                           <button
-                            onClick={() => cambiarEstado(r.id, 'aprobada')}
+                            onClick={() => void cambiarEstado(r.id, 'aprobada')}
                             title={t.aprobar}
                             className="flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 transition hover:bg-emerald-100"
                           >
@@ -210,7 +269,7 @@ export default function AdminReviewsPage() {
                         )}
                         {r.estado !== 'oculta' && (
                           <button
-                            onClick={() => cambiarEstado(r.id, 'oculta')}
+                            onClick={() => void cambiarEstado(r.id, 'oculta')}
                             title={t.ocultar}
                             className="flex h-8 w-8 items-center justify-center rounded-xl border border-brand-200 bg-brand-50 text-ink/50 transition hover:bg-brand-100"
                           >
@@ -218,7 +277,7 @@ export default function AdminReviewsPage() {
                           </button>
                         )}
                         <button
-                          onClick={() => eliminar(r.id)}
+                          onClick={() => void eliminar(r.id)}
                           title={t.eliminar}
                           className="flex h-8 w-8 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-500 transition hover:bg-rose-100"
                         >

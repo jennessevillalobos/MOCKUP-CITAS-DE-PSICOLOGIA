@@ -71,9 +71,7 @@ WHERE m.nombre IN ('presencial', 'virtual');
 
 -- ── Cursos ──
 INSERT INTO public.cursos (id, nombre, slug, descripcion, precio, moneda, estado) VALUES
-  (1, 'Manejo de la Ansiedad', 'manejo-ansiedad',  'Curso introductorio al manejo de la ansiedad.',  50000, 'COP', 'publicado'),
-  (2, 'Autoestima y Crecimiento Personal', 'autoestima-crecimiento', 'Estrategias para fortalecer la autoestima.',  60000, 'COP', 'publicado'),
-  (3, 'Habilidades de Comunicación', 'habilidades-comunicacion', 'Mejora tus relaciones con comunicación asertiva.', 55000, 'COP', 'borrador')
+  (1, 'Manejo de la Ansiedad', 'manejo-ansiedad',  'Curso introductorio al manejo de la ansiedad.',  50000, 'COP', 'publicado')
 ON CONFLICT (id) DO NOTHING;
 SELECT setval('public.cursos_id_seq', (SELECT MAX(id) FROM public.cursos));
 

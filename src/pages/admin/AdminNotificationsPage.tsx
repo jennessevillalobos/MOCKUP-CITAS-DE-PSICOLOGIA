@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Bell, Zap, FileText, Plug, Calendar, MessageCircle, Mail, CheckCheck,
-  Smartphone, ArrowRight, Settings2, Check,
+  Smartphone, ArrowRight, Check,
 } from 'lucide-react';
 import AdminLayout from '@/components/admin/AdminLayout';
 import StatusBadge from '@/components/admin/ui/StatusBadge';
@@ -12,6 +12,53 @@ import {
   type NotificacionRecord, type TipoNotificacion, type ReglaNotificacion, type CanalNotificacion,
   type PlantillaNotificacion,
 } from '@/data/admin/notificationsData';
+import { useAdminAuth } from '@/context/AdminAuthContext';
+import { cargarAvisosAdmin, type AvisoAdmin } from '@/lib/api/admin';
+import { marcarNotificacionesLeidas } from '@/lib/api/notificaciones';
+
+// Con Supabase: avisos reales del admin (triggers de la migración 046 y
+// siguientes). Tipo de la base → grupo de la pantalla.
+const TIPO_DESDE_BASE: Record<AvisoAdmin['tipo'], TipoNotificacion> = {
+  cita: 'Cita', pago: 'Pago', curso: 'Curso', evaluacion: 'Curso', vivo: 'Curso', 'reseña': 'Sistema', mensaje: 'Sistema',
+};
+const TITULO_BASE: Record<AvisoAdmin['tipo'], { es: string; en: string }> = {
+  cita: { es: 'Cita', en: 'Appointment' }, pago: { es: 'Transferencia por revisar', en: 'Transfer to review' },
+  curso: { es: 'Curso', en: 'Course' }, evaluacion: { es: 'Evaluación', en: 'Assessment' }, vivo: { es: 'Clase en vivo', en: 'Live class' },
+  'reseña': { es: 'Reseña por moderar', en: 'Review to moderate' }, mensaje: { es: 'Mensaje de contacto', en: 'Contact message' },
+};
+type RegistroNotificacion = NotificacionRecord & { link?: string | null };
+
+function hace(iso: string, lang: 'es' | 'en') {
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (min < 1) return lang === 'es' ? 'Hace un momento' : 'Just now';
+  if (min < 60) return lang === 'es' ? `Hace ${min} min` : `${min} min ago`;
+  const h = Math.round(min / 60);
+  if (h < 24) return lang === 'es' ? `Hace ${h} h` : `${h}h ago`;
+  const d = Math.round(h / 24);
+  return lang === 'es' ? `Hace ${d} ${d === 1 ? 'día' : 'días'}` : `${d} ${d === 1 ? 'day' : 'days'} ago`;
+}
+
+// Automatizaciones reales (triggers de la base): siempre activas, texto bilingüe fijo.
+const REGLAS_REALES: { nombre: { es: string; en: string }; a: { es: string; en: string } }[] = [
+  { nombre: { es: 'Reserva, cancelación o reprogramación de cita', en: 'Appointment booked, cancelled or rescheduled' }, a: { es: 'Paciente y profesional', en: 'Patient and professional' } },
+  { nombre: { es: 'Transferencia reportada', en: 'Transfer reported' }, a: { es: 'Profesional responsable y administradores', en: 'Responsible professional and admins' } },
+  { nombre: { es: 'Pago aprobado o rechazado', en: 'Payment approved or rejected' }, a: { es: 'Paciente', en: 'Patient' } },
+  { nombre: { es: 'Reembolso registrado', en: 'Refund issued' }, a: { es: 'Paciente', en: 'Patient' } },
+  { nombre: { es: 'Inscripción a un curso / acceso suspendido o reactivado', en: 'Course enrollment / access suspended or reactivated' }, a: { es: 'Estudiante y profesional', en: 'Student and professional' } },
+  { nombre: { es: 'Intento de evaluación por calificar', en: 'Assessment attempt to grade' }, a: { es: 'Profesional', en: 'Professional' } },
+  { nombre: { es: 'Clase en vivo programada, en vivo o cancelada', en: 'Live class scheduled, live or cancelled' }, a: { es: 'Estudiantes y profesionales', en: 'Students and professionals' } },
+  { nombre: { es: 'Reseña nueva', en: 'New review' }, a: { es: 'Profesional y administradores', en: 'Professional and admins' } },
+  { nombre: { es: 'Mensaje del formulario de contacto', en: 'Contact form message' }, a: { es: 'Administradores (y correo vía Resend)', en: 'Admins (and email via Resend)' } },
+  { nombre: { es: 'Recordatorio de saldo pendiente', en: 'Pending balance reminder' }, a: { es: 'Paciente (desde el Panel general)', en: 'Patient (from the Dashboard)' } },
+];
+
+// Estado real de las integraciones (según la configuración del proyecto).
+const INTEGRACIONES_REALES: { nombre: string; estado: 'ok' | 'pendiente' | 'no'; es: string; en: string }[] = [
+  { nombre: 'Resend (correo)', estado: 'ok', es: 'Envía los mensajes del formulario de contacto. Sin dominio verificado solo entrega al buzón de la cuenta.', en: 'Sends contact form messages. Without a verified domain it only delivers to the account inbox.' },
+  { nombre: 'Cloudinary (imágenes)', estado: 'pendiente', es: 'El código está listo; faltan las claves en Supabase → Edge Functions → Secrets.', en: 'Code is ready; the keys are missing in Supabase → Edge Functions → Secrets.' },
+  { nombre: 'Stripe / PayPal', estado: 'pendiente', es: 'Faltan las claves y registrar los webhooks. Hoy se cobra por transferencia con aprobación.', en: 'Keys and webhooks are missing. Payments are by bank transfer with approval for now.' },
+  { nombre: 'WhatsApp / SMS', estado: 'no', es: 'No conectado. Los avisos llegan dentro de la plataforma.', en: 'Not connected. Notices are delivered inside the platform.' },
+];
 
 type Tab = 'centro' | 'reglas' | 'plantillas' | 'integraciones';
 
@@ -56,7 +103,26 @@ export default function AdminNotificationsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = (searchParams.get('tab') as Tab) || 'centro';
 
-  const [notificaciones, setNotificaciones] = useState<NotificacionRecord[]>(demoNotificaciones);
+  const { esReal } = useAdminAuth();
+  const navigate = useNavigate();
+  const [notificaciones, setNotificaciones] = useState<RegistroNotificacion[]>(() => (esReal ? [] : demoNotificaciones));
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+
+  const recargar = useCallback(async () => {
+    if (!esReal) return;
+    const res = await cargarAvisosAdmin();
+    if (res.error) return setErrorCarga(res.error.message);
+    setErrorCarga(null);
+    setNotificaciones(
+      res.data.map((a) => ({
+        id: String(a.id), tipo: TIPO_DESDE_BASE[a.tipo] ?? 'Sistema', titulo: TITULO_BASE[a.tipo]?.[lang] ?? a.tipo,
+        mensaje: lang === 'es' ? a.textoEs : a.textoEn, fecha: hace(a.fecha, lang), leida: a.leida, link: a.link,
+      }))
+    );
+  }, [esReal, lang]);
+  useEffect(() => {
+    void recargar();
+  }, [recargar]);
   const [filtroTipo, setFiltroTipo] = useState<'todas' | TipoNotificacion>('todas');
   const [soloNoLeidas, setSoloNoLeidas] = useState(false);
 
@@ -87,9 +153,14 @@ export default function AdminNotificationsPage() {
 
   function marcarTodoLeido() {
     setNotificaciones((prev) => prev.map((n) => ({ ...n, leida: true })));
+    if (esReal) void marcarNotificacionesLeidas(null).then(() => window.dispatchEvent(new Event('avisos-admin')));
   }
   function marcarLeida(id: string) {
-    setNotificaciones((prev) => prev.map((n) => (n.id === id ? { ...n, leida: true } : n)));
+    const n = notificaciones.find((x) => x.id === id);
+    setNotificaciones((prev) => prev.map((x) => (x.id === id ? { ...x, leida: true } : x)));
+    if (!esReal) return;
+    void marcarNotificacionesLeidas([id]).then(() => window.dispatchEvent(new Event('avisos-admin')));
+    if (n?.link) navigate(n.link);
   }
   function toggleRegla(id: string) {
     setReglas((prev) => prev.map((r) => (r.id === id ? { ...r, activa: !r.activa } : r)));
@@ -108,9 +179,12 @@ export default function AdminNotificationsPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
-          <p className="mt-1 text-sm text-ink/50">{t.subtitle}</p>
+          <p className="mt-1 text-sm text-ink/50">
+            {esReal ? (lang === 'es' ? 'Tus avisos, automatizaciones e integraciones · datos reales' : 'Your notices, automations and integrations · live data') : t.subtitle}
+          </p>
         </div>
       </div>
+      {errorCarga && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCarga}</p>}
 
       <div className="flex w-full max-w-2xl gap-1 rounded-2xl border border-brand-100 bg-white p-1">
         {tabs.map((tb) => {
@@ -186,7 +260,31 @@ export default function AdminNotificationsPage() {
         </>
       )}
 
-      {tab === 'reglas' && (
+      {tab === 'reglas' && esReal && (
+        <section className="overflow-hidden rounded-3xl border border-brand-100 bg-white shadow-soft">
+          <p className="border-b border-brand-100 px-5 py-3 text-xs text-ink/55">
+            {lang === 'es'
+              ? 'Estas automatizaciones viven en la base de datos y están siempre activas. Los avisos llegan a la campana de cada persona y respetan sus preferencias de “Mi perfil”.'
+              : 'These automations live in the database and are always on. Notices reach each person’s bell and respect their “My profile” preferences.'}
+          </p>
+          <div className="divide-y divide-brand-50">
+            {REGLAS_REALES.map((r) => (
+              <div key={r.nombre.es} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-ink">{r.nombre[lang]}</p>
+                  <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink/50">
+                    <ArrowRight size={11} className="text-ink/25" />
+                    {r.a[lang]}
+                  </p>
+                </div>
+                <StatusBadge tone="positivo">{t.active}</StatusBadge>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {tab === 'reglas' && !esReal && (
         <section className="overflow-hidden rounded-3xl border border-brand-100 bg-white shadow-soft">
           <div className="divide-y divide-brand-50">
             {reglas.map((r) => {
@@ -217,7 +315,15 @@ export default function AdminNotificationsPage() {
         </section>
       )}
 
-      {tab === 'plantillas' && (
+      {tab === 'plantillas' && esReal && (
+        <p className="rounded-3xl border border-brand-100 bg-white p-5 text-sm text-ink/60 shadow-soft">
+          {lang === 'es'
+            ? 'Próximamente. Hoy los textos de los avisos están definidos en la base, en español e inglés, junto a cada automatización.'
+            : 'Coming soon. Notice texts are currently defined in the database, in Spanish and English, next to each automation.'}
+        </p>
+      )}
+
+      {tab === 'plantillas' && !esReal && (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[260px_1fr]">
           <div className="h-fit space-y-1 rounded-3xl border border-brand-100 bg-white p-3 shadow-soft">
             {plantillas.map((p) => (
@@ -294,7 +400,23 @@ export default function AdminNotificationsPage() {
         </div>
       )}
 
-      {tab === 'integraciones' && (
+      {tab === 'integraciones' && esReal && (
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {INTEGRACIONES_REALES.map((i) => (
+            <div key={i.nombre} className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-display text-lg font-semibold text-ink">{i.nombre}</p>
+                <StatusBadge tone={i.estado === 'ok' ? 'positivo' : i.estado === 'pendiente' ? 'alerta' : 'neutro'}>
+                  {i.estado === 'ok' ? t.connected : i.estado === 'pendiente' ? (lang === 'es' ? 'Pendiente' : 'Pending') : t.disconnected}
+                </StatusBadge>
+              </div>
+              <p className="mt-2 text-xs leading-relaxed text-ink/55">{i[lang]}</p>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {tab === 'integraciones' && !esReal && (
         <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
           {integraciones.map((i) => {
             const Icon = i.id === 'gcal' ? Calendar : i.id === 'whatsapp' ? MessageCircle : Mail;
@@ -325,11 +447,6 @@ export default function AdminNotificationsPage() {
                   >
                     {i.conectada ? t.disconnect : t.connect}
                   </button>
-                  {i.conectada && (
-                    <button className="rounded-2xl border border-brand-100 px-3 text-ink/50 hover:bg-brand-50" aria-label={t.settings}>
-                      <Settings2 size={15} />
-                    </button>
-                  )}
                 </div>
               </div>
             );
