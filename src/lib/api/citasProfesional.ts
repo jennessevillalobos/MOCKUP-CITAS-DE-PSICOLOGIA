@@ -14,6 +14,7 @@ interface CitaRow {
   hora: string;
   duracion_minutos: number;
   precio_total: number;
+  saldo_pendiente: number;
   estado: string;
   notas_profesional: string | null;
   usuarios: { nombre: string | null; email: string; telefono: string | null } | null;
@@ -67,7 +68,7 @@ export async function cargarCitasProfesional(profesionalId: number, nombreProfes
   const [citas, notas] = await Promise.all([
     supabase
       .from('citas')
-      .select('id, usuario_id, fecha, hora, duracion_minutos, precio_total, estado, notas_profesional, usuarios(nombre, email, telefono), servicios(nombre), modalidades(nombre), lugares(nombre, direccion)')
+      .select('id, usuario_id, fecha, hora, duracion_minutos, precio_total, saldo_pendiente, estado, notas_profesional, usuarios(nombre, email, telefono), servicios(nombre), modalidades(nombre), lugares(nombre, direccion)')
       .eq('profesional_id', profesionalId)
       .order('fecha')
       .order('hora'),
@@ -101,6 +102,7 @@ export async function cargarCitasProfesional(profesionalId: number, nombreProfes
       estado: estadoDesdeBase(c.estado),
       notas: c.notas_profesional ?? '',
       precio: c.precio_total / 100,
+      saldo: (c.saldo_pendiente ?? 0) / 100,
       origenReserva: true,
     };
   });

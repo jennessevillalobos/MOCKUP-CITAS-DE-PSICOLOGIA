@@ -38,6 +38,8 @@ export interface CitaInstructor {
   // Precio pagado (USD) — solo se completa en las reservas hechas desde
   // /agendar, ya que ese wizard cobra por adelantado (pago simulado).
   precio?: number;
+  // Con la base real: saldo por cobrar en USD (0 = pagada).
+  saldo?: number;
   // true solo para las citas creadas desde el wizard público de /agendar —
   // permite distinguir, si hiciera falta, una reserva real del cliente de
   // los datos de demostración originales.

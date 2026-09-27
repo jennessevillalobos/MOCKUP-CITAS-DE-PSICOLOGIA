@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   GraduationCap, Users, Star, ClipboardCheck, CheckCircle2, Plus, Radio, CalendarDays, Video, MapPin,
@@ -12,6 +13,8 @@ import { useInstructorLiveClasses } from '@/context/InstructorLiveClassesContext
 import { useInstructorGrading } from '@/context/InstructorGradingContext';
 import { CURSOS_INFO_DEMO } from '@/data/instructorCoursesData';
 import { ACTIVIDAD_INSTRUCTOR } from '@/data/instructorPortalData';
+import { cargarNotificaciones } from '@/lib/api/notificaciones';
+import type { NotificacionInstructor } from '@/data/notificacionesInstructorData';
 
 const text = {
   es: {
@@ -59,7 +62,20 @@ function diffDias(fechaISO: string, base: string) {
 const AVATAR_ANA_RIVAS = 'https://images.pexels.com/photos/7579108/pexels-photo-7579108.jpeg?auto=compress&cs=tinysrgb&h=200&w=200';
 
 export default function InstructorPage() {
-  const { user } = useSiteAuth();
+  const { user, esSesionReal } = useSiteAuth();
+  // Con sesión real de profesional, la actividad reciente sale de sus notificaciones.
+  const esReal = esSesionReal && user?.rol === 'profesional';
+  const [actividadReal, setActividadReal] = useState<NotificacionInstructor[] | null>(null);
+  useEffect(() => {
+    if (!esReal) return;
+    let vigente = true;
+    void cargarNotificaciones().then((res) => {
+      if (vigente) setActividadReal(res.error ? [] : res.data.slice(0, 5));
+    });
+    return () => {
+      vigente = false;
+    };
+  }, [esReal]);
   const { language } = useSiteLanguage();
   const t = text[language];
 
@@ -178,7 +194,7 @@ export default function InstructorPage() {
         <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
           <div className="mb-1 flex items-center justify-between"><p className="text-xs text-ink/50">{t.estudiantesActivos}</p><Users size={16} className="text-lilac-500" /></div>
           <p className="font-display text-2xl font-semibold text-ink">{totalEstudiantes}</p>
-          <p className="text-xs text-emerald-600">+18 {t.esteMs}</p>
+          {!esReal && <p className="text-xs text-emerald-600">+18 {t.esteMs}</p>}
         </div>
         <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
           <div className="mb-1 flex items-center justify-between"><p className="text-xs text-ink/50">{t.porCalificar}</p><ClipboardCheck size={16} className="text-amber-500" /></div>
@@ -235,7 +251,22 @@ export default function InstructorPage() {
           <div className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
             <h2 className="mb-4 font-display text-lg font-semibold text-ink">{t.actividadReciente}</h2>
             <div className="space-y-4 text-sm">
-              {ACTIVIDAD_INSTRUCTOR.map((a, i) => (
+              {esReal && actividadReal === null && <p className="text-xs text-ink/40">…</p>}
+              {esReal && actividadReal?.length === 0 && (
+                <p className="text-xs text-ink/45">{language === 'es' ? 'Todavía no hay actividad.' : 'No activity yet.'}</p>
+              )}
+              {esReal && actividadReal?.map((a) => (
+                <Link key={a.id} to={a.link || '/instructor/notificaciones'} className="flex gap-3 rounded-xl hover:bg-brand-50/50">
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-50 text-xs text-brand-600">
+                    {a.tipo === 'curso' ? <Users size={14} /> : a.tipo === 'evaluacion' ? <ClipboardCheck size={14} /> : a.tipo === 'reseña' ? <Star size={14} /> : <CheckCircle2 size={14} />}
+                  </span>
+                  <div>
+                    <p className="text-ink">{a.texto[language]}</p>
+                    <p className="text-xs text-ink/40">{a.tiempo[language]}</p>
+                  </div>
+                </Link>
+              ))}
+              {!esReal && ACTIVIDAD_INSTRUCTOR.map((a, i) => (
                 <div key={i} className="flex gap-3">
                   <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-50 text-xs text-brand-600">
                     {a.tipo === 'inscripcion' ? <Users size={14} /> : a.tipo === 'calificar' ? <ClipboardCheck size={14} /> : a.tipo === 'reseña' ? <Star size={14} /> : <CheckCircle2 size={14} />}
@@ -302,7 +333,7 @@ export default function InstructorPage() {
       </section>
 
       <footer className="pb-6 pt-2 text-center text-xs text-ink/35">
-        Psique Amor · {language === 'es' ? 'Panel del instructor — datos de demostración' : 'Instructor panel — demo data'}
+        Psique Amor · {esReal ? (language === 'es' ? 'Panel del instructor' : 'Instructor panel') : language === 'es' ? 'Panel del instructor — datos de demostración' : 'Instructor panel — demo data'}
       </footer>
     </PortalLayout>
   );

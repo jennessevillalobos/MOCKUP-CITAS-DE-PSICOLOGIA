@@ -238,6 +238,11 @@ export default function MisCitasPage() {
             {c.modalidad === 'Online' ? t.enLinea : c.lugar}
           </div>
           <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${ESTADO_CHIP_CLS[c.estado]}`}>{t[estKey]}</span>
+          {c.saldo !== undefined && c.estado === 'Programada' && (
+            <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${c.saldo > 0 ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+              {c.saldo > 0 ? `${language === 'es' ? 'Debe' : 'Due'} $${c.saldo}` : language === 'es' ? 'Pagada' : 'Paid'}
+            </span>
+          )}
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-brand-50 pt-3">
