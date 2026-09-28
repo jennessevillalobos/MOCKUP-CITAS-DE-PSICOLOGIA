@@ -1,7 +1,9 @@
-import { useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowLeft, KeyRound, Loader2, Mail, CheckCircle2 } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, KeyRound, Loader2, Mail, CheckCircle2, Lock } from 'lucide-react';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
+import { useSiteAuth } from '@/context/SiteAuthContext';
+import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
 const logo = '/src/assets/logos/1_(1).png';
 const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -18,6 +20,16 @@ const text = {
     successTitle: 'Correo enviado',
     successMsg: 'Si existe una cuenta asociada a ese correo, recibirás un enlace para restablecer tu contraseña en los próximos minutos.',
     backToLogin: 'Ir a iniciar sesión',
+    sendErr: 'No pudimos enviar el correo en este momento. Inténtalo más tarde o escríbenos desde Contacto.',
+    newTitle: 'Crea una nueva contraseña',
+    newSubtitle: 'Escribe la contraseña que usarás a partir de ahora.',
+    passPh: 'Nueva contraseña', confPh: 'Confirmar contraseña',
+    passErr: 'Mínimo 6 caracteres.', confErr: 'Las contraseñas no coinciden.',
+    save: 'Guardar contraseña', saving: 'Guardando...',
+    expired: 'El enlace venció o ya se usó. Pide uno nuevo.',
+    savedTitle: 'Contraseña actualizada',
+    savedMsg: 'Ya puedes usar tu nueva contraseña.',
+    goAccount: 'Ir a mi cuenta',
   },
   en: {
     back: 'Back to login',
@@ -30,6 +42,16 @@ const text = {
     successTitle: 'Email sent',
     successMsg: 'If an account is associated with that email, you will receive a password reset link in the next few minutes.',
     backToLogin: 'Go to login',
+    sendErr: "We couldn't send the email right now. Try again later or write to us from Contact.",
+    newTitle: 'Create a new password',
+    newSubtitle: 'Type the password you will use from now on.',
+    passPh: 'New password', confPh: 'Confirm password',
+    passErr: 'Minimum 6 characters.', confErr: "Passwords don't match.",
+    save: 'Save password', saving: 'Saving...',
+    expired: 'The link expired or was already used. Request a new one.',
+    savedTitle: 'Password updated',
+    savedMsg: 'You can now use your new password.',
+    goAccount: 'Go to my account',
   },
 } as const;
 
@@ -40,8 +62,60 @@ export default function RecoverPasswordPage() {
   const [error, setError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const { user } = useSiteAuth();
+  const real = isSupabaseConfigured();
+  // El enlace del correo vuelve aquí con ?nueva=1 y una sesión de recuperación.
+  const [searchParams] = useSearchParams();
+  const modoNueva = real && searchParams.get('nueva') === '1';
+  const [pass, setPass] = useState('');
+  const [conf, setConf] = useState('');
+  const [guardada, setGuardada] = useState(false);
+  // Solo se permite cambiar la contraseña si se llegó desde el enlace del
+  // correo (hash con type=recovery o ?code=). Se lee en el primer render, antes
+  // de que el cliente de Supabase limpie la URL, y se recuerda en la pestaña.
+  const [enlaceValido] = useState(() => {
+    const valido = window.location.hash.includes('type=recovery') || searchParams.has('code');
+    try {
+      if (valido) sessionStorage.setItem('psiqueRecuperacion', '1');
+      return valido || sessionStorage.getItem('psiqueRecuperacion') === '1';
+    } catch {
+      return valido;
+    }
+  });
 
-  const handleSubmit = (e: FormEvent) => {
+  useEffect(() => {
+    if (modoNueva && !enlaceValido) setError(t.expired);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    if (modoNueva && (searchParams.get('error_description') || hash.get('error_description'))) setError(t.expired);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modoNueva]);
+
+  const handleNueva = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (pass.length < 6) return setError(t.passErr);
+    if (pass !== conf) return setError(t.confErr);
+    if (!enlaceValido) return setError(t.expired);
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    setIsProcessing(true);
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) {
+      setIsProcessing(false);
+      return setError(t.expired);
+    }
+    const { error: err } = await supabase.auth.updateUser({ password: pass });
+    setIsProcessing(false);
+    if (err) return setError(/different from the old/i.test(err.message) ? err.message : t.expired);
+    try {
+      sessionStorage.removeItem('psiqueRecuperacion');
+    } catch {
+      // sin sessionStorage
+    }
+    setGuardada(true);
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -52,7 +126,17 @@ export default function RecoverPasswordPage() {
     }
 
     setIsProcessing(true);
-    // Simulate API call
+    const supabase = getSupabaseClient();
+    if (real && supabase) {
+      const { error: err } = await supabase.auth.resetPasswordForEmail(mail.toLowerCase(), {
+        redirectTo: `${window.location.origin}/recuperar-password?nueva=1`,
+      });
+      setIsProcessing(false);
+      if (err) return setError(t.sendErr);
+      setIsSuccess(true);
+      return;
+    }
+    // Modo demo: no hay correo real.
     setTimeout(() => {
       setIsProcessing(false);
       setIsSuccess(true);
@@ -77,15 +161,60 @@ export default function RecoverPasswordPage() {
               <KeyRound size={20} />
             </div>
             <h2 className="font-display text-3xl font-semibold text-ink">
-              {isSuccess ? t.successTitle : t.title}
+              {modoNueva ? (guardada ? t.savedTitle : t.newTitle) : isSuccess ? t.successTitle : t.title}
             </h2>
             <p className="mt-2 text-sm text-ink/60">
-              {isSuccess ? t.successMsg : t.subtitle}
+              {modoNueva ? (guardada ? t.savedMsg : t.newSubtitle) : isSuccess ? t.successMsg : t.subtitle}
             </p>
           </div>
 
           <div className="mt-10">
-            {isSuccess ? (
+            {modoNueva ? (
+              guardada ? (
+                <div className="rounded-2xl border border-brand-200 bg-brand-50 p-6 text-center">
+                  <CheckCircle2 size={32} className="mx-auto mb-3 text-emerald-500" />
+                  <p className="text-sm font-semibold text-ink">{t.savedTitle}</p>
+                  <Link
+                    to={user?.rol === 'profesional' ? '/instructor' : user ? '/portal-paciente' : '/iniciar-sesion'}
+                    className="focus-ring mt-6 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-brand-gradient text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5"
+                  >
+                    {user ? t.goAccount : t.backToLogin}
+                  </Link>
+                </div>
+              ) : (
+                <form onSubmit={handleNueva} className="space-y-4">
+                  {[
+                    { id: 'pass', value: pass, set: setPass, ph: t.passPh },
+                    { id: 'conf', value: conf, set: setConf, ph: t.confPh },
+                  ].map((c) => (
+                    <div key={c.id} className="relative">
+                      <Lock className="absolute left-3.5 top-3.5 text-ink/40" size={18} />
+                      <input
+                        type="password"
+                        value={c.value}
+                        onChange={(e) => c.set(e.target.value)}
+                        placeholder={c.ph}
+                        aria-label={c.ph}
+                        className="block w-full rounded-xl border border-brand-200 bg-white py-3 pl-10 pr-4 text-sm text-ink outline-none transition focus:border-brand-400 focus:ring-4 focus:ring-brand-100"
+                      />
+                    </div>
+                  ))}
+                  {error && (
+                    <p className="text-xs font-semibold text-red-500">
+                      {error}{' '}
+                      {error === t.expired && <Link to="/recuperar-password" className="underline">{t.submit}</Link>}
+                    </p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={isProcessing}
+                    className="focus-ring flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand-gradient text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5 disabled:opacity-70"
+                  >
+                    {isProcessing ? <><Loader2 size={16} className="animate-spin" /> {t.saving}</> : t.save}
+                  </button>
+                </form>
+              )
+            ) : isSuccess ? (
               <div className="rounded-2xl border border-brand-200 bg-brand-50 p-6 text-center">
                 <CheckCircle2 size={32} className="mx-auto mb-3 text-emerald-500" />
                 <p className="text-sm font-semibold text-ink">{t.successTitle}</p>

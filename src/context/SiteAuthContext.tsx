@@ -1,13 +1,13 @@
 import { createContext, useContext, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
-import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
-import { signIn as supabaseSignIn, signUp as supabaseSignUp, signOut as supabaseSignOut, ensureRole } from '@/lib/api/auth';
+import { getSupabaseClient, isSupabaseConfigured, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from '@/lib/supabase/client';
+import { signIn as supabaseSignIn, signOut as supabaseSignOut } from '@/lib/api/auth';
+import { registerAccount } from '@/lib/api/edgeFunctions';
 import {
   cargarPerfil, guardarPerfil, subirFotoPerfil, cambiarContrasena as cambiarContrasenaApi, cerrarTodasLasSesiones,
   type PerfilReal, type PreferenciasUsuario,
 } from '@/lib/api/perfil';
-import { toServiceError, type Result } from '@/lib/supabase/errors';
+import { type Result } from '@/lib/supabase/errors';
 import { sesionRealProbable } from '@/lib/supabase/sesionLocal';
-import type { RolNombre } from '@/lib/supabase/types';
 
 export type SiteRole = 'paciente' | 'profesional';
 
@@ -39,12 +39,6 @@ function usuarioDesdePerfil(perfil: PerfilReal): SiteUser {
   };
 }
 
-// Mapeo entre el rol seleccionado en la UI y el rol real de la base de datos.
-const roleToDb: Record<SiteRole, RolNombre> = {
-  paciente: 'estudiante',
-  profesional: 'instructor',
-};
-
 const STORAGE_KEY = 'psiqueUser';
 
 // Cuentas de demostración para esta etapa de frontend (sin backend real
@@ -65,7 +59,12 @@ interface SiteAuthContextValue {
   // Autenticación real de Supabase (email + contraseña). Devuelve el usuario
   // mapeado a la sesión, o el error del proveedor.
   loginWithPassword: (correo: string, password: string) => Promise<Result<SiteUser>>;
+  // Con Supabase la cuenta se crea activa y como paciente (Edge Function
+  // register-account) y se inicia sesión en seguida; en demo solo es local.
   registerWithPassword: (correo: string, password: string, nombre?: string, rol?: SiteRole) => Promise<Result<{ user: SiteUser; needsEmailConfirmation: boolean }>>;
+  // "Continuar con Google" (Supabase OAuth). Sale del sitio hacia Google y
+  // vuelve a `volverA`; la sesión se lee al regresar.
+  loginWithGoogle: (volverA: string) => Promise<{ error: string | null }>;
   // Espera a que Supabase cierre la sesión, para que al navegar no se restaure.
   logout: () => Promise<void>;
   // Actualiza campos del perfil de la sesión activa (Mi perfil). No cambia el rol.
@@ -194,33 +193,35 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
   );
 
   const registerWithPassword = useCallback(
-    async (correo: string, password: string, nombreParam?: string, rolParam?: SiteRole): Promise<Result<{ user: SiteUser; needsEmailConfirmation: boolean }>> => {
-      const derivedNombre = nombreParam || correo.split('@')[0].split(/[._-]/).filter(Boolean).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-      const res = await supabaseSignUp({ email: correo, password, nombre: derivedNombre });
-      if (res.error) return res;
-
-      // Asignar el rol seleccionado al nuevo usuario (upsert en usuario_roles).
-      // Si la sesión no quedó activa (requiere confirmación de email), este
-      // paso se completará en el siguiente login.
-      const dbRole = roleToDb[rolParam || 'paciente'];
-      const roleRes = await ensureRole(res.data.id, dbRole);
-      if (roleRes.error) {
-        // No abortamos el registro: el usuario fue creado, pero el rol no.
-        // Lo logueamos para que el equipo lo detecte.
-        console.warn('No se pudo asignar el rol automáticamente:', toServiceError(roleRes.error).message);
-      }
-
-      const next: SiteUser = { nombre: derivedNombre, correo, rol: rolParam || 'paciente' };
-      const needsEmailConfirmation = !res.data.sessionEstablished;
-
-      if (!needsEmailConfirmation) {
-        persist(next);
-      }
-      return { data: { user: next, needsEmailConfirmation }, error: null };
+    async (correo: string, password: string, nombreParam?: string): Promise<Result<{ user: SiteUser; needsEmailConfirmation: boolean }>> => {
+      const nombre = nombreParam || nombreDesdeCorreo(correo);
+      const creada = await registerAccount({ nombre, correo, password });
+      if (creada.error) return { data: null, error: creada.error };
+      const sesion = await loginWithPassword(correo, password);
+      if (sesion.error) return { data: null, error: sesion.error };
+      return { data: { user: sesion.data, needsEmailConfirmation: false }, error: null };
     },
-    [persist]
+    [loginWithPassword]
   );
+
+  const loginWithGoogle = useCallback(async (volverA: string) => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return { error: 'Supabase no está configurado.' };
+    // Si Google no está activado en Supabase, el redireccionamiento terminaría
+    // en una página de error cruda: se comprueba antes de salir del sitio.
+    try {
+      const ajustes = await fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: SUPABASE_PUBLISHABLE_KEY ?? '' } });
+      const datos = (await ajustes.json()) as { external?: Record<string, boolean> };
+      if (!datos.external?.google) return { error: 'provider is not enabled' };
+    } catch {
+      // Sin respuesta de la configuración se intenta igual.
+    }
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: volverA, queryParams: { prompt: 'select_account' } },
+    });
+    return { error: error?.message ?? null };
+  }, []);
 
   const logout = useCallback(async () => {
     perfilRef.current = null;
@@ -279,7 +280,7 @@ export function SiteAuthProvider({ children }: { children: ReactNode }) {
   return (
     <SiteAuthContext.Provider
       value={{
-        user, isRealAuth: realAuth, login, loginAs, loginWithPassword, registerWithPassword, logout, updateProfile,
+        user, isRealAuth: realAuth, login, loginAs, loginWithPassword, registerWithPassword, loginWithGoogle, logout, updateProfile,
         esSesionReal, cambiarContrasena, cerrarOtrasSesiones,
       }}
     >

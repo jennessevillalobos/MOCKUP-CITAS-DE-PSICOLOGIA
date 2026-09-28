@@ -1,6 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { Eye, EyeOff, KeyRound, ArrowLeft, Languages, UserRound, GraduationCap } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, Languages, UserRound, GraduationCap } from 'lucide-react';
 import { useSiteAuth, type SiteRole } from '@/context/SiteAuthContext';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 
@@ -14,13 +14,17 @@ const text = {
     tabLogin: 'Iniciar sesión', tabRegistro: 'Crear cuenta',
     titleLogin: 'Bienvenid@ de vuelta', subtitleLogin: 'Accede a tu espacio de bienestar.',
     titleRegistro: 'Crea tu cuenta', subtitleRegistro: 'Empieza a cuidar tu bienestar hoy.',
-    google: 'Continuar con Google', or: 'o con tu correo', orShort: 'o',
+    google: 'Continuar con Google', or: 'o con tu correo', 
     nombrePh: 'Nombre completo', correoPh: 'Correo electrónico', passPh: 'Contraseña', confPh: 'Confirmar contraseña',
     nombreErr: 'Ingresa tu nombre.', correoErr: 'Correo no válido.', passErr: 'Mínimo 6 caracteres.', confErr: 'Las contraseñas no coinciden.',
     termsErr: 'Debes aceptar para continuar.', terms1: 'Acepto los ', terms2: 'Términos', terms3: ' y la ', terms4: 'Política de Privacidad', terms5: '.',
     wrongCreds: 'Correo o contraseña incorrectos.',
     enterLogin: 'Iniciar sesión', enterRegistro: 'Crear cuenta',
-    demo: 'Entrar con cuenta demo', hint: 'Prueba: cualquier correo válido y contraseña de 6+ caracteres, o usa la cuenta demo.',
+    accountExists: 'Ya existe una cuenta con este correo. Inicia sesión.',
+    googleOff: 'El acceso con Google aún no está activado. Entra con tu correo y contraseña.',
+    googleErr: 'No se pudo entrar con Google. Inténtalo de nuevo.',
+    googleWait: 'Conectando con Google…',
+    registroNota: 'La cuenta se crea como paciente. Si eres profesional, la administración activa tu panel.',
     switchToRegistro: '¿No tienes cuenta?', switchToRegistroLink: 'Regístrate',
     switchToLogin: '¿Ya tienes cuenta?', switchToLoginLink: 'Inicia sesión',
     back: 'Volver al inicio', showPass: 'Mostrar contraseña', hidePass: 'Ocultar contraseña',
@@ -32,13 +36,17 @@ const text = {
     tabLogin: 'Log in', tabRegistro: 'Create account',
     titleLogin: 'Welcome back', subtitleLogin: 'Access your wellbeing space.',
     titleRegistro: 'Create your account', subtitleRegistro: 'Start caring for your wellbeing today.',
-    google: 'Continue with Google', or: 'or with your email', orShort: 'or',
+    google: 'Continue with Google', or: 'or with your email', 
     nombrePh: 'Full name', correoPh: 'Email address', passPh: 'Password', confPh: 'Confirm password',
     nombreErr: 'Enter your name.', correoErr: 'Invalid email.', passErr: 'Minimum 6 characters.', confErr: "Passwords don't match.",
     termsErr: 'You must accept to continue.', terms1: 'I accept the ', terms2: 'Terms', terms3: ' and the ', terms4: 'Privacy Policy', terms5: '.',
     wrongCreds: 'Incorrect email or password.',
     enterLogin: 'Log in', enterRegistro: 'Create account',
-    demo: 'Sign in with demo account', hint: 'Try: any valid email and a 6+ character password, or use the demo account.',
+    accountExists: 'An account with this email already exists. Log in.',
+    googleOff: 'Google sign-in is not enabled yet. Use your email and password.',
+    googleErr: 'Could not sign in with Google. Please try again.',
+    googleWait: 'Connecting to Google…',
+    registroNota: 'The account is created as a patient. If you are a professional, the administration enables your panel.',
     switchToRegistro: 'No account?', switchToRegistroLink: 'Sign up',
     switchToLogin: 'Already have an account?', switchToLoginLink: 'Log in',
     back: 'Back to site', showPass: 'Show password', hidePass: 'Hide password',
@@ -57,7 +65,7 @@ function volverSeguro(valor: string | null) {
 }
 
 export default function AuthPage() {
-  const { login, loginAs, isRealAuth, loginWithPassword, registerWithPassword } = useSiteAuth();
+  const { user, esSesionReal, login, isRealAuth, loginWithPassword, registerWithPassword, loginWithGoogle } = useSiteAuth();
   const { language, setLanguage } = useSiteLanguage();
   const t = text[language];
   const navigate = useNavigate();
@@ -76,28 +84,51 @@ export default function AuthPage() {
   const [errores, setErrores] = useState<{ nombre?: string; correo?: string; pass?: string; conf?: string; terms?: string }>({});
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const [cargando, setCargando] = useState<'form' | 'google' | 'demo' | null>(null);
+  // Al volver de Google la URL trae ?oauth=google (y un error si se canceló).
+  const volviendoDeGoogle = searchParams.get('oauth') === 'google';
+  const [cargando, setCargando] = useState<'form' | 'google' | null>(() => (volviendoDeGoogle ? 'google' : null));
 
   function irAlPortal(rol: SiteRole) {
     navigate((rol === 'paciente' && volver) || destinoDe(rol));
   }
 
-  function handleGoogle() {
-    setCargando('google');
-    setTimeout(() => {
+  // Regreso de Google: el contexto lee la sesión y el perfil de la base; con
+  // eso se entra al portal según el rol real de la cuenta.
+  useEffect(() => {
+    if (!volviendoDeGoogle) return;
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const errorOAuth = searchParams.get('error_description') || hash.get('error_description');
+    if (errorOAuth) {
       setCargando(null);
-      loginAs(role);
-      irAlPortal(role);
-    }, 800);
-  }
+      setErrorGeneral(/provider is not enabled|unsupported provider/i.test(errorOAuth) ? t.googleOff : t.googleErr);
+      return;
+    }
+    if (user && esSesionReal) {
+      irAlPortal(user.rol);
+      return;
+    }
+    // Si la sesión no llega (p. ej. se canceló en Google), se libera el botón.
+    const espera = setTimeout(() => {
+      setCargando(null);
+      setErrorGeneral(t.googleErr);
+    }, 12000);
+    return () => clearTimeout(espera);
+    // irAlPortal y los textos no cambian el resultado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [volviendoDeGoogle, user, esSesionReal]);
 
-  function handleDemo() {
-    setCargando('demo');
-    setTimeout(() => {
+  async function handleGoogle() {
+    setErrorGeneral(null);
+    setInfo(null);
+    setCargando('google');
+    const destino = new URL('/iniciar-sesion', window.location.origin);
+    destino.searchParams.set('oauth', 'google');
+    if (volver) destino.searchParams.set('volver', volver);
+    const res = await loginWithGoogle(destino.toString());
+    if (res.error) {
       setCargando(null);
-      loginAs(role);
-      irAlPortal(role);
-    }, 600);
+      setErrorGeneral(/provider is not enabled|unsupported provider/i.test(res.error) ? t.googleOff : t.googleErr);
+    }
   }
 
   async function handleLogin(e: FormEvent) {
@@ -152,15 +183,15 @@ export default function AuthPage() {
     setCargando('form');
 
     if (isRealAuth) {
-      const res = await registerWithPassword(correo.trim(), pass, nombre.trim(), role);
+      const res = await registerWithPassword(correo.trim().toLowerCase(), pass, nombre.trim());
       setCargando(null);
       if (res.error) {
-        setErrorGeneral(res.error.message || t.wrongCreds);
-        return;
-      }
-      if (res.data.needsEmailConfirmation) {
-        setInfo('Cuenta creada. Revisa tu correo para confirmar antes de iniciar sesión.');
-        setView('login');
+        if (res.error.code === 'account_exists') {
+          setView('login');
+          setInfo(t.accountExists);
+        } else {
+          setErrorGeneral(res.error.message || t.wrongCreds);
+        }
         return;
       }
       irAlPortal(res.data.user.rol);
@@ -197,7 +228,8 @@ export default function AuthPage() {
       </Link>
 
       <div className="w-full max-w-md">
-        {/* Selector de rol */}
+        {/* Selector de rol: solo en modo demo. Con Supabase el rol sale de la cuenta. */}
+        {!isRealAuth && (
         <div className="mb-4 rounded-[28px] border border-white/60 bg-white/90 p-2 shadow-soft backdrop-blur">
           <p className="mb-2 px-2 pt-1 text-center text-xs font-bold uppercase tracking-widest text-ink/45">{t.roleQuestion}</p>
           <div className="grid grid-cols-2 gap-2">
@@ -223,6 +255,7 @@ export default function AuthPage() {
             </button>
           </div>
         </div>
+        )}
 
         <section className="rounded-[32px] border border-white/60 bg-white/90 p-7 shadow-lift backdrop-blur">
           <div className="mb-5 flex gap-1 rounded-full bg-brand-50 p-1 text-xs font-bold">
@@ -259,6 +292,8 @@ export default function AuthPage() {
             </div>
           )}
 
+          {isRealAuth && (
+          <>
           <button
             type="button"
             onClick={handleGoogle}
@@ -266,7 +301,10 @@ export default function AuthPage() {
             className="flex w-full items-center justify-center gap-3 rounded-full bg-white border border-brand-100 py-2.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {cargando === 'google' ? (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-300 border-t-brand-700" />
+              <>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-300 border-t-brand-700" />
+                {t.googleWait}
+              </>
             ) : (
               <>
                 <svg className="h-5 w-5" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.1 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.5 3-2.2 5.5-4.7 7.2l7.3 5.7c4.3-4 6.8-9.8 6.8-17.4z"/><path fill="#FBBC05" d="M10.4 28.3c-.5-1.4-.8-2.9-.8-4.3s.3-3 .8-4.3l-7.8-6.1C.9 16.9 0 20.3 0 24s.9 7.1 2.6 10.4l7.8-6.1z"/><path fill="#34A853" d="M24 48c6.2 0 11.5-2 15.3-5.6l-7.3-5.7c-2 1.4-4.7 2.3-8 2.3-6.3 0-11.7-3.6-13.6-8.8l-7.8 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
@@ -280,6 +318,8 @@ export default function AuthPage() {
             <span>{t.or}</span>
             <span className="h-px flex-1 bg-brand-100" />
           </div>
+          </>
+          )}
 
           {view === 'login' ? (
             <form onSubmit={handleLogin} noValidate className="space-y-3">
@@ -371,10 +411,11 @@ export default function AuthPage() {
               <label className="flex items-start gap-2 text-xs text-ink/60">
                 <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} className="mt-0.5 h-4 w-4 accent-brand-600" />
                 <span>
-                  {t.terms1}<a href="#" className="font-semibold text-brand-600 hover:underline">{t.terms2}</a>{t.terms3}<a href="#" className="font-semibold text-brand-600 hover:underline">{t.terms4}</a>{t.terms5}
+                  {t.terms1}<Link to="/legal?seccion=terminos" target="_blank" className="font-semibold text-brand-600 hover:underline">{t.terms2}</Link>{t.terms3}<Link to="/legal?seccion=privacidad" target="_blank" className="font-semibold text-brand-600 hover:underline">{t.terms4}</Link>{t.terms5}
                 </span>
               </label>
               {errores.terms && <p className="text-xs text-rose-600">{errores.terms}</p>}
+              {isRealAuth && <p className="text-[11px] leading-4 text-ink/45">{t.registroNota}</p>}
               <button
                 type="submit"
                 disabled={cargando !== null}
@@ -384,29 +425,6 @@ export default function AuthPage() {
               </button>
             </form>
           )}
-
-          <div className="my-5 flex items-center gap-3 text-xs text-ink/40">
-            <span className="h-px flex-1 bg-brand-100" />
-            <span>{t.orShort}</span>
-            <span className="h-px flex-1 bg-brand-100" />
-          </div>
-
-          <button
-            type="button"
-            onClick={handleDemo}
-            disabled={cargando !== null}
-            className="flex w-full items-center justify-center gap-2 rounded-full border border-brand-200 bg-brand-50 py-2.5 text-sm font-bold text-brand-700 transition hover:bg-brand-100 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {cargando === 'demo' ? (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-300 border-t-brand-700" />
-            ) : (
-              <>
-                <KeyRound size={16} />
-                {t.demo}
-              </>
-            )}
-          </button>
-          <p className="mt-3 text-center text-[11px] text-ink/40">{t.hint}</p>
 
           <p className="mt-4 text-center text-sm text-ink/55">
             {view === 'login' ? (

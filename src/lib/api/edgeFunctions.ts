@@ -176,6 +176,18 @@ export async function bookAppointmentGuest(
 }
 
 /**
+ * Crea una cuenta de paciente ya activa ("Crear cuenta" de /iniciar-sesion).
+ * Edge Function: `register-account` — responde `account_exists` si el correo ya existe.
+ */
+export async function registerAccount(input: {
+  nombre: string;
+  correo: string;
+  password: string;
+}): Promise<Result<{ usuario_id: string }>> {
+  return callEdgeFunction<{ usuario_id: string }>('register-account', input, { publica: true });
+}
+
+/**
  * Crea una sesión de Stripe Checkout para una orden existente.
  * Edge Function: `create-stripe-session`
  *
