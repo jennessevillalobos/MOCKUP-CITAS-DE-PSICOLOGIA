@@ -1,10 +1,8 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
-import { PROFESIONALES_PUBLICOS } from '@/data/professionalsPageData';
-import { listProfesionalesPublicos } from '@/lib/api/catalog';
+import { useProfesionalesPublicos } from '@/hooks/useProfesionalesPublicos';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 
 const text = {
@@ -32,31 +30,8 @@ export default function ProfessionalsPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
 
-  const [dbProfessionals, setDbProfessionals] = useState(PROFESIONALES_PUBLICOS);
-
-  useEffect(() => {
-    const fetchDbData = async () => {
-      // Profesionales activos de la base (vista pública, migración 012). Se cruzan
-      // por slug con PROFESIONALES_PUBLICOS para conservar los textos en inglés y
-      // que el enlace /profesionales/:slug siga resolviendo el perfil.
-      const res = await listProfesionalesPublicos();
-      if (res.error || res.data.length === 0) return;
-
-      setDbProfessionals(res.data.map((p) => {
-        const local = PROFESIONALES_PUBLICOS.find((l) => l.key === p.slug);
-        if (local) return { ...local, name: p.nombre || local.name, image: p.foto || local.image };
-        return {
-          key: p.slug ?? String(p.id),
-          name: p.nombre || 'Profesional',
-          specialty: { es: p.especialidad || 'Psicología', en: p.especialidad || 'Psychology' },
-          description: { es: p.descripcion || '', en: p.descripcion || '' },
-          modality: { es: 'Online y presencial', en: 'Online and in-person' },
-          image: p.foto || PROFESIONALES_PUBLICOS[0].image,
-        };
-      }));
-    };
-    fetchDbData();
-  }, []);
+  // Fichas activas de la base (las crea el admin); sin Supabase, el catálogo.
+  const { profesionales: dbProfessionals } = useProfesionalesPublicos();
 
   return (
     <div className="overflow-hidden bg-white">

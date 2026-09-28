@@ -4,6 +4,8 @@ import { HeartHandshake, UserRound, MapPin, Plus, Search, Pencil, Trash2 } from 
 import AdminLayout from '@/components/admin/AdminLayout';
 import StatusBadge from '@/components/admin/ui/StatusBadge';
 import AdminDrawer from '@/components/admin/ui/AdminDrawer';
+import ProfesionalesAdminReal from '@/components/admin/ProfesionalesAdminReal';
+import { isSupabaseConfigured } from '@/lib/supabase/client';
 import { useAdminLanguage } from '@/context/AdminLanguageContext';
 import {
   demoServicios, demoProfesionales, demoLugares, ESPECIALIDADES_DISPONIBLES, DIAS_SEMANA,
@@ -15,7 +17,8 @@ type Tab = 'serv' | 'prof' | 'lug';
 const text = {
   es: {
     title: 'Servicios, profesionales y lugares', subtitle: 'Catálogo operativo · datos de demostración',
-    newBtn: { serv: 'Nuevo servicio', prof: 'Nuevo profesional', lug: 'Nuevo lugar' } as Record<Tab, string>,
+    subtitleReal: 'Profesionales conectadas a la base · servicios y sedes aún de demostración',
+    newBtn: { serv: 'Nuevo servicio', prof: 'Nueva profesional', lug: 'Nuevo lugar' } as Record<Tab, string>,
     tabs: { serv: 'Servicios / Terapias', prof: 'Profesionales', lug: 'Lugares / Sedes' } as Record<Tab, string>,
     search: 'Buscar…', all: 'Todos', active: 'Activo', inactive: 'Inactivo', status: 'Estado',
     // servicios
@@ -35,6 +38,7 @@ const text = {
   },
   en: {
     title: 'Services, professionals and locations', subtitle: 'Operational catalog · demo data',
+    subtitleReal: 'Professionals connected to the database · services and locations still demo',
     newBtn: { serv: 'New service', prof: 'New professional', lug: 'New location' } as Record<Tab, string>,
     tabs: { serv: 'Services / Therapies', prof: 'Professionals', lug: 'Locations' } as Record<Tab, string>,
     search: 'Search…', all: 'All', active: 'Active', inactive: 'Inactive', status: 'Status',
@@ -69,6 +73,9 @@ export default function AdminServicesPage() {
   const t = text[lang];
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = (searchParams.get('tab') as Tab) || 'serv';
+  // Con Supabase la pestaña Profesionales usa las fichas reales (055–056).
+  const profReales = isSupabaseConfigured();
+  const [nuevaFicha, setNuevaFicha] = useState(false);
 
   const [servicios, setServicios] = useState<ServicioRecord[]>(demoServicios);
   const [profesionales, setProfesionales] = useState<ProfesionalRecord[]>(demoProfesionales);
@@ -101,7 +108,10 @@ export default function AdminServicesPage() {
   function nuevoBtn() {
     setBuscar(buscar); // no-op keep filter
     if (tab === 'serv') setServicioEdit('new');
-    if (tab === 'prof') setProfEdit('new');
+    if (tab === 'prof') {
+      if (profReales) setNuevaFicha(true);
+      else setProfEdit('new');
+    }
     if (tab === 'lug') setLugarEdit('new');
   }
 
@@ -142,7 +152,7 @@ export default function AdminServicesPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
-          <p className="mt-1 text-sm text-ink/50">{t.subtitle}</p>
+          <p className="mt-1 text-sm text-ink/50">{profReales && tab === 'prof' ? t.subtitleReal : t.subtitle}</p>
         </div>
         <button
           onClick={nuevoBtn}
@@ -225,7 +235,11 @@ export default function AdminServicesPage() {
         </section>
       )}
 
-      {tab === 'prof' && (
+      {tab === 'prof' && profReales && (
+        <ProfesionalesAdminReal lang={lang} buscar={buscar} abrirNueva={nuevaFicha} onNuevaCerrada={() => setNuevaFicha(false)} />
+      )}
+
+      {tab === 'prof' && !profReales && (
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {profesionalesFiltrados.map((p) => (
             <div key={p.id} className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">

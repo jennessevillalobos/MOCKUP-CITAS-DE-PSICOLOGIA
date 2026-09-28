@@ -5,6 +5,15 @@ export interface ProfesionalPublico {
   description: { es: string; en: string };
   modality: { es: string; en: string };
   image: string;
+  // Solo con la base real (fichas del admin, migración 055): servicios y sedes
+  // que ofrece (slugs) y el perfil extendido. Si faltan, las páginas usan sus
+  // textos por defecto.
+  servicios?: string[];
+  sedes?: string[];
+  bio?: { es: string; en: string };
+  experiencia?: { es: string; en: string };
+  enfoques?: { es: string; en: string }[];
+  formacion?: string[];
 }
 
 // Los primeros 3 son el mismo equipo destacado en el Home (misma foto y datos).

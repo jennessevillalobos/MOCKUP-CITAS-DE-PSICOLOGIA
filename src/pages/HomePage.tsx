@@ -67,7 +67,7 @@ export default function HomePage() {
   // Estado para los datos conectados a Supabase (con fallback a mocks)
   // La base decide QUÉ se muestra (y la foto); los textos salen del catálogo
   // bilingüe del sitio cuando existe, para respetar el idioma elegido.
-  const [profsBase, setProfsBase] = useState<Array<{ slug: string; nombre: string | null; foto: string | null; especialidad: string | null; descripcion: string | null }> | null>(null);
+  const [profsBase, setProfsBase] = useState<Array<{ slug: string; nombre: string | null; foto: string | null; especialidad: string | null; descripcion: string | null; perfil: Record<string, unknown> | null }> | null>(null);
   const [cursosBase, setCursosBase] = useState<Array<{ slug: string; nombre: string; descripcion: string | null; imagen: string | null }> | null>(null);
   const dbProfessionals = useMemo<Array<(typeof professionals)[number] & { slug?: string }>>(() => {
     if (!profsBase) {
@@ -78,12 +78,16 @@ export default function HomePage() {
     }
     return profsBase.map((p) => {
       const local = PROFESIONALES_PUBLICOS.find((l) => l.key === p.slug);
+      // Fichas creadas desde el admin (055): textos en inglés en `perfil`.
+      const perfil = p.perfil ?? {};
+      const deFicha = (clave: string) => (typeof perfil[clave] === 'string' && perfil[clave] ? (perfil[clave] as string) : undefined);
+      const en = language === 'en';
       return {
         slug: p.slug,
         name: p.nombre || local?.name || 'Profesional',
-        specialty: local?.specialty[language] ?? p.especialidad ?? (language === 'es' ? 'Psicología' : 'Psychology'),
-        description: local?.description[language] ?? p.descripcion ?? '',
-        modality: local?.modality[language] ?? (language === 'es' ? 'Online y presencial' : 'Online and in-person'),
+        specialty: local?.specialty[language] ?? (en ? deFicha('especialidad_en') : undefined) ?? p.especialidad ?? (en ? 'Psychology' : 'Psicología'),
+        description: local?.description[language] ?? (en ? deFicha('descripcion_en') : undefined) ?? p.descripcion ?? '',
+        modality: local?.modality[language] ?? deFicha(en ? 'modalidad_en' : 'modalidad_es') ?? (en ? 'Online and in-person' : 'Online y presencial'),
         image: p.foto || local?.image || images.professionalOne,
       };
     });
@@ -124,7 +128,7 @@ export default function HomePage() {
 
       try {
         // Vista pública (migración 012): nombre y foto sin exponer `usuarios`.
-        const { data: profs } = await supabase.from('profesionales_publicos').select('slug, nombre, foto, especialidad, descripcion').order('id').limit(3);
+        const { data: profs } = await supabase.from('profesionales_publicos').select('slug, nombre, foto, especialidad, descripcion, perfil').order('id').limit(3);
         if (profs && profs.length > 0) setProfsBase(profs);
 
         const { data: cur } = await supabase.from('cursos').select('*').eq('estado', 'publicado').limit(3);
@@ -188,7 +192,7 @@ export default function HomePage() {
 
       <section className="section-space bg-brand-50/80"><div className="container-wide grid items-center gap-14 lg:grid-cols-[.85fr_1.15fr] lg:gap-24"><div className="reveal relative mx-auto w-full max-w-[440px]"><div className="absolute -left-8 top-10 h-56 w-56 rounded-full border border-lilac-400/50" /><div className="absolute -bottom-6 -right-6 h-44 w-44 rounded-full bg-lilac-200/80" /><div className="relative h-[460px] overflow-hidden rounded-[48%_35%_44%_32%] shadow-soft"><img src={images.emotional} alt="Mujer en calma junto a una ventana" className="h-full w-full object-cover" /></div><div className="absolute -bottom-5 left-4 grid h-20 w-20 place-items-center rounded-full border-8 border-brand-50 bg-brand-600 text-white shadow-soft"><Heart size={26} /></div></div><div className="reveal"><SectionHeading label={t.emotionalLabel} title={t.emotionalTitle} text={t.emotionalText} /><ul className="mt-8 space-y-5">{t.points.map((point) => <li key={point} className="flex items-center gap-4 text-sm font-semibold text-ink/75"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white text-brand-600 shadow-sm"><Check size={15} /></span>{point}</li>)}</ul><AppButton href="/quienes-somos" className="mt-9">{t.about}<ArrowRight size={15} /></AppButton></div></div></section>
 
-      <section id="professionals" className="section-space"><div className="container-wide"><div className="reveal flex flex-col justify-between gap-8 lg:flex-row lg:items-end"><SectionHeading label={t.teamLabel} title={t.teamTitle} text={t.teamText} /><Link to="/profesionales" className="focus-ring inline-flex min-h-12 items-center justify-center gap-3 rounded-full border border-brand-300 bg-white/50 px-6 text-sm font-bold text-brand-700 transition duration-300 hover:-translate-y-1 hover:border-brand-500 hover:bg-white">{t.teamButton}<ArrowRight size={15} /></Link></div><div className="mt-14 grid gap-6 md:grid-cols-3">{dbProfessionals.map((person, i) => <article key={person.name} className={`reveal group overflow-hidden rounded-[28px] bg-white shadow-soft transition duration-500 hover:-translate-y-2 ${i === 1 ? 'md:translate-y-8' : ''}`} style={{ transitionDelay: `${i * 80}ms` }}><div className="relative aspect-[.78/1] overflow-hidden"><img src={person.image} alt={person.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" /><div className="absolute inset-0 bg-brand-700/0 transition duration-500 group-hover:bg-brand-700/20" /><span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-brand-700">{person.specialty}</span><span className="absolute bottom-4 right-4 grid h-10 w-10 translate-y-3 place-items-center rounded-full bg-white text-brand-700 opacity-0 shadow-soft transition duration-300 group-hover:translate-y-0 group-hover:opacity-100"><ArrowUpRight size={17} /></span></div><div className="p-5"><h3 className="text-2xl font-semibold text-ink">{person.name}</h3><p className="mt-2 text-sm text-ink/60">{person.description}</p><div className="mt-5 flex items-center justify-between border-t border-brand-100 pt-4 text-xs font-semibold text-ink/55"><span>{person.modality}</span><Link to={person.slug && PROFESIONALES_PUBLICOS.some((p) => p.key === person.slug) ? `/profesionales/${person.slug}` : '/profesionales'} className="text-brand-600">{t.profile}</Link></div></div></article>)}</div></div></section>
+      <section id="professionals" className="section-space"><div className="container-wide"><div className="reveal flex flex-col justify-between gap-8 lg:flex-row lg:items-end"><SectionHeading label={t.teamLabel} title={t.teamTitle} text={t.teamText} /><Link to="/profesionales" className="focus-ring inline-flex min-h-12 items-center justify-center gap-3 rounded-full border border-brand-300 bg-white/50 px-6 text-sm font-bold text-brand-700 transition duration-300 hover:-translate-y-1 hover:border-brand-500 hover:bg-white">{t.teamButton}<ArrowRight size={15} /></Link></div><div className="mt-14 grid gap-6 md:grid-cols-3">{dbProfessionals.map((person, i) => <article key={person.name} className={`reveal group overflow-hidden rounded-[28px] bg-white shadow-soft transition duration-500 hover:-translate-y-2 ${i === 1 ? 'md:translate-y-8' : ''}`} style={{ transitionDelay: `${i * 80}ms` }}><div className="relative aspect-[.78/1] overflow-hidden"><img src={person.image} alt={person.name} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" /><div className="absolute inset-0 bg-brand-700/0 transition duration-500 group-hover:bg-brand-700/20" /><span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-brand-700">{person.specialty}</span><span className="absolute bottom-4 right-4 grid h-10 w-10 translate-y-3 place-items-center rounded-full bg-white text-brand-700 opacity-0 shadow-soft transition duration-300 group-hover:translate-y-0 group-hover:opacity-100"><ArrowUpRight size={17} /></span></div><div className="p-5"><h3 className="text-2xl font-semibold text-ink">{person.name}</h3><p className="mt-2 text-sm text-ink/60">{person.description}</p><div className="mt-5 flex items-center justify-between border-t border-brand-100 pt-4 text-xs font-semibold text-ink/55"><span>{person.modality}</span><Link to={person.slug ? `/profesionales/${person.slug}` : '/profesionales'} className="text-brand-600">{t.profile}</Link></div></div></article>)}</div></div></section>
   
       <section id="courses" className="section-space bg-brand-900 text-white"><div className="container-wide"><div className="reveal flex flex-col justify-between gap-8 lg:flex-row lg:items-end"><SectionHeading light label={t.coursesLabel} title={t.coursesTitle} text={t.coursesText} /><Link to="/cursos" className="group inline-flex shrink-0 items-center gap-2 text-sm font-bold text-white">{t.exploreCourses}<ArrowRight size={16} className="transition-transform group-hover:translate-x-1" /></Link></div><div className="mt-14 grid gap-5 lg:grid-cols-[1.25fr_.75fr]"><CourseCard course={dbCourses[0]} large /><div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-1">{dbCourses.slice(1).map((course) => <CourseCard key={course.title} course={course} />)}</div></div></div></section>
 

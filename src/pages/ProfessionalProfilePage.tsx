@@ -6,7 +6,8 @@ import {
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
-import { PROFESIONALES_PUBLICOS } from '@/data/professionalsPageData';
+import { SERVICIOS_PUBLICOS } from '@/data/servicesPageData';
+import { useProfesionalesPublicos } from '@/hooks/useProfesionalesPublicos';
 
 // Extended mock data per professional
 const PROFILES: Record<string, {
@@ -118,7 +119,8 @@ const text = {
     sessionDuration: 'Duración de la sesión', price: 'Precio', rating: 'Calificación',
     reviews: 'reseñas', otherProfs: 'Otros profesionales',
     modalityLabel: 'Modalidad', experienceLabel: 'Experiencia',
-    notFound: 'Profesional no encontrado.', backHome: 'Ir al inicio',
+    notFound: 'Profesional no encontrado.', backHome: 'Ir al inicio', loading: 'Cargando…',
+    from: (precio: number) => `Desde $${precio} USD / sesión`,
   },
   en: {
     back: 'Back to professionals', bookBtn: 'Book appointment', contactBtn: 'Send message',
@@ -127,7 +129,8 @@ const text = {
     sessionDuration: 'Session duration', price: 'Price', rating: 'Rating',
     reviews: 'reviews', otherProfs: 'Other professionals',
     modalityLabel: 'Modality', experienceLabel: 'Experience',
-    notFound: 'Professional not found.', backHome: 'Go to home',
+    notFound: 'Professional not found.', backHome: 'Go to home', loading: 'Loading…',
+    from: (precio: number) => `From $${precio} USD / session`,
   },
 } as const;
 
@@ -150,9 +153,37 @@ export default function ProfessionalProfilePage() {
   const { language } = useSiteLanguage();
   const t = text[language];
 
-  const professional = PROFESIONALES_PUBLICOS.find((p) => p.key === slug);
-  const profile = (slug && PROFILES[slug]) ? PROFILES[slug] : DEFAULT_PROFILE;
-  const others = PROFESIONALES_PUBLICOS.filter((p) => p.key !== slug).slice(0, 3);
+  const { profesionales, cargando } = useProfesionalesPublicos();
+  const professional = profesionales.find((p) => p.key === slug);
+  const others = profesionales.filter((p) => p.key !== slug).slice(0, 3);
+
+  // Lo que escribió el admin en la ficha (055) manda; si falta, los textos de
+  // ejemplo de este archivo. La calificación de ejemplo solo se muestra en las
+  // fichas que la traen (las reseñas reales aún no tienen pantalla).
+  const ejemplo = slug ? PROFILES[slug] : undefined;
+  const base = ejemplo ?? DEFAULT_PROFILE;
+  const serviciosFicha = SERVICIOS_PUBLICOS.filter((s) => professional?.servicios?.includes(s.key));
+  const profile = {
+    ...base,
+    bioLong: professional?.bio ?? base.bioLong,
+    experience: professional?.experiencia ?? base.experience,
+    approaches: professional?.enfoques ?? base.approaches,
+    certifications: professional?.formacion ?? base.certifications,
+    services: serviciosFicha.length ? serviciosFicha.map((s) => s.titulo) : base.services,
+    price: serviciosFicha.length
+      ? { es: text.es.from(Math.min(...serviciosFicha.map((s) => s.precio))), en: text.en.from(Math.min(...serviciosFicha.map((s) => s.precio))) }
+      : base.price,
+  };
+
+  if (!professional && cargando) {
+    return (
+      <div className="flex min-h-screen flex-col bg-white">
+        <SiteHeader />
+        <main className="flex flex-1 items-center justify-center pt-20 text-sm text-ink/50">{t.loading}</main>
+        <SiteFooter />
+      </div>
+    );
+  }
 
   if (!professional) {
     return (
@@ -210,7 +241,7 @@ export default function ProfessionalProfilePage() {
                 </span>
                 <h1 className="mt-3 font-display text-3xl font-semibold text-ink sm:text-4xl">{professional.name}</h1>
                 <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-ink/60">
-                  <StarRow rating={profile.rating} count={profile.reviewCount} />
+                  {ejemplo && <StarRow rating={ejemplo.rating} count={ejemplo.reviewCount} />}
                   <span className="flex items-center gap-1.5"><Clock size={14} /> {profile.sessionDuration}</span>
                   <span className="flex items-center gap-1.5">
                     {professional.modality[language].toLowerCase().includes('online') || professional.modality[language].toLowerCase().includes('virtual')

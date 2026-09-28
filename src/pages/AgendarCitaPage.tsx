@@ -13,7 +13,7 @@ import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
 import { bookAppointment, bookAppointmentGuest, getAvailableSlots } from '@/lib/api/edgeFunctions';
 import { resolverIdsReserva } from '@/lib/api/catalog';
 import { SERVICIOS_PUBLICOS } from '@/data/servicesPageData';
-import { PROFESIONALES_PUBLICOS } from '@/data/professionalsPageData';
+import { useProfesionalesPublicos } from '@/hooks/useProfesionalesPublicos';
 import { SEDES } from '@/data/contactPageData';
 
 type Modalidad = 'Online' | 'Presencial';
@@ -64,6 +64,7 @@ const text = {
     sedeCentro: 'Sede Centro',
     faltaServicio: 'Selecciona un servicio para continuar.',
     faltaProfesional: 'Selecciona un profesional para continuar.',
+    sinProfesionales: 'Por ahora ninguna profesional ofrece este servicio. Elige otro o escríbenos desde Contacto.',
     faltaModalidad: 'Elige una modalidad para continuar.',
     faltaFechaHora: 'Elige una fecha y una hora para continuar.',
   },
@@ -112,6 +113,7 @@ const text = {
     sedeCentro: 'Downtown location',
     faltaServicio: 'Select a service to continue.',
     faltaProfesional: 'Select a professional to continue.',
+    sinProfesionales: 'No professional offers this service right now. Choose another one or write to us from Contact.',
     faltaModalidad: 'Choose a mode to continue.',
     faltaFechaHora: 'Choose a date and time to continue.',
   },
@@ -264,8 +266,20 @@ export default function AgendarCitaPage() {
   const [pagoReportado, setPagoReportado] = useState(false);
 
   const servicio = useMemo(() => SERVICIOS_PUBLICOS.find((s) => s.key === servicioKey) ?? null, [servicioKey]);
-  const profesional = useMemo(() => PROFESIONALES_PUBLICOS.find((p) => p.key === profesionalKey) ?? null, [profesionalKey]);
+  // Con la base, las profesionales son las fichas activas (las crea el admin) y
+  // se muestran solo las que ofrecen el servicio elegido.
+  const { profesionales: listaProfesionales } = useProfesionalesPublicos();
+  const profesionalesDelServicio = useMemo(
+    () => listaProfesionales.filter((p) => !p.servicios || !servicioKey || p.servicios.includes(servicioKey)),
+    [listaProfesionales, servicioKey],
+  );
+  const profesional = useMemo(() => listaProfesionales.find((p) => p.key === profesionalKey) ?? null, [listaProfesionales, profesionalKey]);
   const sedeSeleccionada = useMemo(() => SEDES.find((s) => s.key === sedeKey) ?? null, [sedeKey]);
+  // Sedes donde atiende la profesional (si la ficha las indica); si no, todas.
+  const sedesDisponibles = useMemo(
+    () => (profesional?.sedes?.length ? SEDES.filter((s) => profesional.sedes?.includes(s.key)) : SEDES),
+    [profesional],
+  );
 
   // La persona siempre puede elegir Online o Presencial para su cita,
   // independientemente de cómo esté descrita la modalidad del servicio o
@@ -561,7 +575,10 @@ export default function AgendarCitaPage() {
               <div>
                 <p className="mb-5 text-center text-sm text-ink/55">{t.paso2Sub}</p>
                 <div className="grid gap-4 sm:grid-cols-3">
-                  {PROFESIONALES_PUBLICOS.map((p) => {
+                  {profesionalesDelServicio.length === 0 && (
+                    <p className="col-span-full text-center text-sm text-ink/50">{t.sinProfesionales}</p>
+                  )}
+                  {profesionalesDelServicio.map((p) => {
                     const seleccionado = p.key === profesionalKey;
                     return (
                       <button
@@ -622,7 +639,7 @@ export default function AgendarCitaPage() {
                       className="mt-2 w-full rounded-2xl border border-transparent bg-brand-50/60 px-4 py-3 text-sm text-ink outline-none focus:border-brand-300 focus:ring-4 focus:ring-brand-100"
                     >
                       <option value="" disabled>{t.paso3Sede}</option>
-                      {SEDES.map((s) => (
+                      {sedesDisponibles.map((s) => (
                         <option key={s.key} value={s.key}>{s.nombre} — {s.direccion[language]}</option>
                       ))}
                     </select>

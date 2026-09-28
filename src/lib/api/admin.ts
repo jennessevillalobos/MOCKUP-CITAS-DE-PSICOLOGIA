@@ -565,3 +565,63 @@ export function cerrarSesionAdmin(sesionId: string) {
 export function guardarTransferenciaAdmin(valor: { banco: string; titular: string; numero: string; adicional: string }) {
   return rpcAdmin<null>('admin_guardar_transferencia', { p_valor: valor });
 }
+
+// Fichas de profesionales (migraciones 055–056): la profesional se registra y
+// el admin crea su ficha enlazada a esa cuenta (o pasa una ficha a otra cuenta).
+export interface PerfilFicha {
+  especialidad_en?: string; descripcion_en?: string;
+  modalidad_es?: string; modalidad_en?: string;
+  bio_es?: string; bio_en?: string;
+  experiencia_es?: string; experiencia_en?: string;
+  enfoques_es?: string[]; enfoques_en?: string[];
+  formacion?: string[];
+}
+
+export interface FichaProfesionalAdmin {
+  id: number;
+  slug: string;
+  especialidad: string | null;
+  descripcion: string | null;
+  estado: 'activo' | 'inactivo';
+  perfil: PerfilFicha;
+  nombre: string | null;
+  correo: string | null;
+  foto: string | null;
+  cuentaInterna: boolean;
+  servicios: number[];
+  sedes: number[];
+  citas: number;
+  cursos: number;
+  tieneHorario: boolean;
+}
+
+export interface ProfesionalesAdmin {
+  fichas: FichaProfesionalAdmin[];
+  servicios: { id: number; slug: string; nombre: string }[];
+  sedes: { id: number; slug: string; nombre: string }[];
+}
+
+export type DatosFicha = PerfilFicha & {
+  nombre: string;
+  especialidad: string;
+  descripcion: string;
+  estado?: 'activo' | 'inactivo';
+  servicios: number[];
+  sedes: number[];
+};
+
+export function cargarProfesionalesAdmin() {
+  return rpcAdmin<ProfesionalesAdmin>('admin_profesionales');
+}
+
+export function crearProfesionalAdmin(correo: string, datos: DatosFicha) {
+  return rpcAdmin<number>('admin_crear_profesional', { p_correo: correo, p_datos: datos });
+}
+
+export function actualizarProfesionalAdmin(id: number, datos: DatosFicha) {
+  return rpcAdmin<null>('admin_actualizar_profesional', { p_id: id, p_datos: datos });
+}
+
+export function enlazarProfesionalAdmin(id: number, correo: string, nombre: string) {
+  return rpcAdmin<null>('admin_enlazar_profesional', { p_id: id, p_correo: correo, p_nombre: nombre });
+}

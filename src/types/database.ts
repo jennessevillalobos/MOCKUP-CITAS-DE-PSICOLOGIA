@@ -838,6 +838,9 @@ export interface Database {
           descripcion: string | null;
           nombre: string | null;
           foto: string | null;
+          perfil: Record<string, unknown>;
+          servicios: string[];
+          sedes: string[];
         };
       };
     };
