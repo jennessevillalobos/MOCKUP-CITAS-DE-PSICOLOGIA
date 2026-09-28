@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ArrowRight, BookOpen, Clock3, Play, Search } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
 import { RECURSOS_PUBLICOS, type TipoRecurso } from '@/data/resourcesPageData';
@@ -140,10 +141,10 @@ export default function ResourcesPage() {
                         ${r.precio} <span className="text-xs font-normal text-ink/40">USD</span>
                       </span>
                     )}
-                    <a href="/#contact" className="group/link inline-flex items-center gap-1.5 text-sm font-bold text-brand-600">
+                    <Link to="/tienda" className="group/link inline-flex items-center gap-1.5 text-sm font-bold text-brand-600">
                       {t.view}
                       <ArrowRight size={14} className="transition-transform group-hover/link:translate-x-1" />
-                    </a>
+                    </Link>
                   </div>
                 </div>
               </article>
@@ -160,10 +161,10 @@ export default function ResourcesPage() {
             <div className="mx-auto max-w-3xl rounded-[28px] border border-brand-100 bg-brand-50/70 p-8 text-center shadow-soft sm:p-10">
               <h2 className="text-2xl font-semibold text-ink">{t.ctaTitle}</h2>
               <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-ink/60">{t.ctaText}</p>
-              <a href="/#contact" className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-brand-gradient px-6 text-sm font-bold text-white shadow-soft transition hover:-translate-y-1 hover:shadow-lift">
+              <Link to="/contacto" className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-brand-gradient px-6 text-sm font-bold text-white shadow-soft transition hover:-translate-y-1 hover:shadow-lift">
                 {t.ctaButton}
                 <ArrowRight size={15} />
-              </a>
+              </Link>
             </div>
           </div>
         </section>

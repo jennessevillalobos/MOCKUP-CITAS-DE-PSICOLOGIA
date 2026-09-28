@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { Instagram, Linkedin, Youtube } from 'lucide-react';
 import { useContacto } from '@/hooks/useContacto';
 import { translations } from '@/i18n/translations';
@@ -56,8 +57,8 @@ export default function SiteFooter() {
         <div className="mt-14 flex flex-col justify-between gap-4 border-t border-white/10 pt-6 text-xs text-white/45 sm:flex-row">
           <span>© {new Date().getFullYear()} Psique Amor</span>
           <div className="flex flex-wrap gap-5">
-            <a href="/#contact" className="hover:text-white">{t.privacy}</a>
-            <a href="/#contact" className="hover:text-white">{t.terms}</a>
+            <Link to="/legal?seccion=privacidad" className="hover:text-white">{t.privacy}</Link>
+            <Link to="/legal?seccion=terminos" className="hover:text-white">{t.terms}</Link>
             <span>ES | EN</span>
           </div>
         </div>

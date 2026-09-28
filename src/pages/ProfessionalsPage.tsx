@@ -94,10 +94,10 @@ export default function ProfessionalsPage() {
             <div className="mx-auto max-w-3xl rounded-[28px] border border-brand-100 bg-brand-50/70 p-8 text-center shadow-soft sm:p-10">
               <h2 className="text-2xl font-semibold text-ink">{t.ctaTitle}</h2>
               <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-ink/60">{t.ctaText}</p>
-              <a href="/#contact" className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-brand-gradient px-6 text-sm font-bold text-white shadow-soft transition hover:-translate-y-1 hover:shadow-lift">
+              <Link to="/contacto" className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-brand-gradient px-6 text-sm font-bold text-white shadow-soft transition hover:-translate-y-1 hover:shadow-lift">
                 {t.ctaButton}
                 <ArrowRight size={15} />
-              </a>
+              </Link>
             </div>
           </div>
         </section>
