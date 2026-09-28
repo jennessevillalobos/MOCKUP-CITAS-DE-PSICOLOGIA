@@ -5,7 +5,7 @@ import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
 import ProductCheckoutModal from '@/components/site/ProductCheckoutModal';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
-import { demoProductos } from '@/data/admin/digitalProductsData';
+import { useProductosPublicos } from '@/hooks/useCatalogoPublico';
 
 const text = {
   es: {
@@ -49,7 +49,18 @@ export default function DigitalProductDetailPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const product = demoProductos.find((item) => item.id === id && item.estado === 'Publicado');
+  const { productos, cargando } = useProductosPublicos(language);
+  const product = productos.find((item) => item.id === id);
+
+  if (!product && cargando) {
+    return (
+      <div className="flex min-h-screen flex-col bg-white">
+        <SiteHeader />
+        <main className="flex flex-1 items-center justify-center pt-20 text-sm text-ink/50">{language === 'es' ? 'Cargando…' : 'Loading…'}</main>
+        <SiteFooter />
+      </div>
+    );
+  }
 
   if (!product) {
     return (
@@ -88,8 +99,9 @@ export default function DigitalProductDetailPage() {
               <div className="relative grid min-h-[300px] place-items-center overflow-hidden rounded-[32px] bg-brand-50 shadow-soft sm:min-h-[390px]">
                 <div className="absolute inset-0 bg-mist-gradient" />
                 <ProductIcon size={104} strokeWidth={1.1} className={isBook ? 'relative text-brand-300' : 'relative text-lilac-300'} />
+                {product.portada && <img src={product.portada} alt="" className="absolute inset-0 h-full w-full object-cover" />}
                 <span className="absolute left-5 top-5 rounded-full bg-white/90 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-brand-700">
-                  {product.tipo}
+                  {isBook ? (language === 'es' ? 'Libro' : 'Book') : 'Video'}
                 </span>
               </div>
               <div>
@@ -99,6 +111,8 @@ export default function DigitalProductDetailPage() {
                 <div className="mt-7 grid gap-3 text-sm text-ink/60 sm:grid-cols-2">
                   <span><strong className="font-semibold text-ink">{t.category}:</strong> {product.categoria}</span>
                   <span><strong className="font-semibold text-ink">{t.updated}:</strong> {product.actualizado}</span>
+                  {product.autor && <span><strong className="font-semibold text-ink">{language === 'es' ? 'Autora' : 'Author'}:</strong> {product.autor}</span>}
+                  {product.duracion && <span><strong className="font-semibold text-ink">{language === 'es' ? 'Duración' : 'Duration'}:</strong> {product.duracion}</span>}
                 </div>
                 <div className="mt-8 flex flex-wrap items-center gap-4">
                   <span className="font-display text-3xl font-semibold text-brand-700">${product.precio} <span className="text-sm font-normal text-ink/45">{product.moneda}</span></span>

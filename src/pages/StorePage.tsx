@@ -4,7 +4,8 @@ import { Link } from 'react-router-dom';
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
-import { demoProductos, CATEGORIAS_PRODUCTO, ProductoDigitalRecord } from '@/data/admin/digitalProductsData';
+import type { ProductoDigitalRecord } from '@/data/admin/digitalProductsData';
+import { useProductosPublicos } from '@/hooks/useCatalogoPublico';
 import ProductCheckoutModal from '@/components/site/ProductCheckoutModal';
 
 const text = {
@@ -39,7 +40,12 @@ export default function StorePage() {
   const [filtroTipo, setFiltroTipo] = useState<'Todos' | 'Libro' | 'Video'>('Todos');
   const [filtroCategoria, setFiltroCategoria] = useState<string>('Todas');
 
-  const productosPublicados = useMemo(() => demoProductos.filter((p) => p.estado === 'Publicado'), []);
+  // Productos publicados de la base (058); sin Supabase, los de demostración.
+  const { productos: productosPublicados } = useProductosPublicos(language);
+  const categorias = useMemo(
+    () => [...new Set(productosPublicados.map((p) => p.categoria).filter(Boolean))].sort(),
+    [productosPublicados],
+  );
 
   const productosFiltrados = useMemo(() => {
     return productosPublicados.filter((p) => {
@@ -111,7 +117,7 @@ export default function StorePage() {
                   className="w-full bg-transparent text-sm text-ink outline-none"
                 >
                   <option value="Todas">{t.categories} ({t.all})</option>
-                  {CATEGORIAS_PRODUCTO.map(c => <option key={c} value={c}>{c}</option>)}
+                  {categorias.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
             </div>
@@ -136,11 +142,12 @@ export default function StorePage() {
                   
                   {/* Aspect Ratio 4:3 para la portada */}
                   <div className="relative aspect-[4/3] w-full overflow-hidden bg-brand-50">
+                    {p.portada && <img src={p.portada} alt="" className="absolute inset-0 z-[1] h-full w-full object-cover" />}
                     <div className="absolute inset-0 flex items-center justify-center bg-mist-gradient">
                       {p.tipo === 'Libro' ? <BookText size={48} className="text-brand-300 transition-transform group-hover:scale-110" /> : <PlayCircle size={48} className="text-lilac-300 transition-transform group-hover:scale-110" />}
                     </div>
                     {/* Badge de tipo */}
-                    <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-brand-700 backdrop-blur">
+                    <div className="absolute left-3 top-3 z-[2] flex items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-brand-700 backdrop-blur">
                       {p.tipo === 'Libro' ? <BookText size={12} /> : <PlayCircle size={12} />}
                       {p.tipo === 'Libro' ? t.books : t.videos}
                     </div>

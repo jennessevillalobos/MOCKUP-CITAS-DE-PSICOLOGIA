@@ -568,6 +568,12 @@ export interface Database {
           moneda: string | null;
           archivo_url: string | null;
           estado: string | null;
+          clave: string | null;
+          categoria: string | null;
+          profesional_id: number | null;
+          descarga_permitida: boolean | null;
+          textos: Record<string, unknown>;
+          actualizado_en: string | null;
         };
         Insert: {
           tipo?: string | null;

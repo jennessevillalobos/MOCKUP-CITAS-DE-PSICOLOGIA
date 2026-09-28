@@ -1,9 +1,14 @@
 import { useMemo, useState } from 'react';
-import { ArrowRight, BookOpen, Clock3, Play, Search } from 'lucide-react';
+import { ArrowRight, BookOpen, Play, Search } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
-import { RECURSOS_PUBLICOS, type TipoRecurso } from '@/data/resourcesPageData';
+import { useProductosPublicos } from '@/hooks/useCatalogoPublico';
+
+type TipoRecurso = 'libro' | 'video';
+
+// Colores de las portadas ilustradas (cuando el producto no tiene portada).
+const COLORES = ['bg-brand-700', 'bg-lilac-600', 'bg-brand-600', 'bg-lilac-500', 'bg-brand-500', 'bg-lilac-700'];
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 
 const text = {
@@ -15,7 +20,6 @@ const text = {
     filters: { '': 'Todos', libro: 'Libros', video: 'Videos' } as Record<'' | TipoRecurso, string>,
     empty: 'No se encontraron recursos.',
     view: 'Ver',
-    featured: 'Destacado',
     book: 'Libro',
     video: 'Video',
     ctaTitle: '¿Buscas algo más específico?',
@@ -30,7 +34,6 @@ const text = {
     filters: { '': 'All', libro: 'Books', video: 'Videos' } as Record<'' | TipoRecurso, string>,
     empty: 'No resources found.',
     view: 'View',
-    featured: 'Featured',
     book: 'Book',
     video: 'Video',
     ctaTitle: 'Looking for something more specific?',
@@ -46,14 +49,22 @@ export default function ResourcesPage() {
   const [search, setSearch] = useState('');
   const [tipo, setTipo] = useState<'' | TipoRecurso>('');
 
+  // Vitrina de la Tienda (058): los mismos libros y videos publicados; cada
+  // tarjeta abre su página en /tienda/:id para comprarlo.
+  const { productos } = useProductosPublicos(language);
+  const recursos = useMemo(
+    () => productos.map((p, i) => ({ ...p, tipoRecurso: (p.tipo === 'Video' ? 'video' : 'libro') as TipoRecurso, color: COLORES[i % COLORES.length] })),
+    [productos],
+  );
+
   const filtrados = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return RECURSOS_PUBLICOS.filter((r) => {
-      const matchTipo = !tipo || r.tipo === tipo;
-      const matchQ = !q || r.titulo[language].toLowerCase().includes(q) || r.autor.toLowerCase().includes(q);
+    return recursos.filter((r) => {
+      const matchTipo = !tipo || r.tipoRecurso === tipo;
+      const matchQ = !q || r.titulo.toLowerCase().includes(q) || (r.autor ?? '').toLowerCase().includes(q);
       return matchTipo && matchQ;
     });
-  }, [search, tipo, language]);
+  }, [recursos, search, tipo]);
 
   return (
     <div className="overflow-hidden bg-white">
@@ -107,20 +118,26 @@ export default function ResourcesPage() {
         <section className="container-wide py-10">
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {filtrados.map((r) => (
-              <article key={r.key} className="group flex flex-col overflow-hidden rounded-[28px] border border-brand-100 bg-white shadow-soft transition duration-500 hover:-translate-y-1">
-                <div className={`relative flex h-48 flex-col justify-between overflow-hidden p-4 text-white ${r.colorClases}`}>
-                  <div className="flex items-center justify-between">
+              <article key={r.id} className="group flex flex-col overflow-hidden rounded-[28px] border border-brand-100 bg-white shadow-soft transition duration-500 hover:-translate-y-1">
+                <div className={`relative flex h-48 flex-col justify-between overflow-hidden p-4 text-white ${r.color}`}>
+                  {r.portada && (
+                    <>
+                      <img src={r.portada} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                    </>
+                  )}
+                  <div className="relative flex items-center justify-between">
                     <span className="inline-flex items-center gap-1 rounded-full bg-black/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide backdrop-blur-sm">
-                      {r.tipo === 'libro' ? <BookOpen size={12} /> : <Play size={12} />}
-                      {r.tipo === 'libro' ? t.book : t.video}
+                      {r.tipoRecurso === 'libro' ? <BookOpen size={12} /> : <Play size={12} />}
+                      {r.tipoRecurso === 'libro' ? t.book : t.video}
                     </span>
                     {r.duracion && (
                       <span className="rounded bg-black/30 px-1.5 py-0.5 text-[10px] font-semibold">{r.duracion}</span>
                     )}
                   </div>
-                  <div className="flex items-end justify-between gap-2">
-                    <p className="font-display text-lg font-semibold leading-tight">{r.titulo[language]}</p>
-                    {r.tipo === 'libro' ? (
+                  <div className="relative flex items-end justify-between gap-2">
+                    <p className="font-display text-lg font-semibold leading-tight">{r.titulo}</p>
+                    {r.tipoRecurso === 'libro' ? (
                       <BookOpen size={26} strokeWidth={1.4} className="shrink-0 opacity-70" />
                     ) : (
                       <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/20"><Play size={15} fill="currentColor" /></span>
@@ -128,20 +145,13 @@ export default function ResourcesPage() {
                   </div>
                 </div>
                 <div className="flex flex-1 flex-col p-5">
-                  <p className="text-xs font-semibold text-ink/50">{r.autor}</p>
-                  {r.descripcion && <p className="mt-2 flex-1 text-sm leading-6 text-ink/60">{r.descripcion[language]}</p>}
-                  {!r.descripcion && <div className="flex-1" />}
+                  {r.autor && <p className="text-xs font-semibold text-ink/50">{r.autor}</p>}
+                  <p className="mt-2 flex-1 text-sm leading-6 text-ink/60">{r.descripcion}</p>
                   <div className="mt-4 flex items-center justify-between border-t border-brand-100 pt-4">
-                    {r.destacado ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-lilac-600">
-                        <Clock3 size={13} />{t.featured}
-                      </span>
-                    ) : (
-                      <span className="font-display text-lg font-semibold text-brand-700">
-                        ${r.precio} <span className="text-xs font-normal text-ink/40">USD</span>
-                      </span>
-                    )}
-                    <Link to="/tienda" className="group/link inline-flex items-center gap-1.5 text-sm font-bold text-brand-600">
+                    <span className="font-display text-lg font-semibold text-brand-700">
+                      ${r.precio} <span className="text-xs font-normal text-ink/40">{r.moneda}</span>
+                    </span>
+                    <Link to={`/tienda/${r.id}`} className="group/link inline-flex items-center gap-1.5 text-sm font-bold text-brand-600">
                       {t.view}
                       <ArrowRight size={14} className="transition-transform group-hover/link:translate-x-1" />
                     </Link>

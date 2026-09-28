@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { SERVICIOS_PUBLICOS, type ServicioPublico, type CategoriaServicio } from '@/data/servicesPageData';
 import { SEDES, type Sede } from '@/data/contactPageData';
+import { demoProductos, type ProductoDigitalRecord } from '@/data/admin/digitalProductsData';
 import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
 
 // Servicios y sedes del sitio. Con Supabase la base decide cuáles se muestran
@@ -103,4 +104,61 @@ export function useServiciosPublicos() {
 export function useSedesPublicas() {
   const { lista, cargando } = useSedes();
   return { sedes: lista, cargando };
+}
+
+// Libros y videos publicados (Tienda y /recursos, migración 058). La base
+// manda; `demoProductos` es solo el respaldo sin Supabase.
+const useProductos = crearCatalogo<ProductoDigitalRecord>(
+  demoProductos.filter((p) => p.estado === 'Publicado'),
+  async () => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return null;
+    const [productos, profesionales] = await Promise.all([
+      supabase
+        .from('productos_digitales')
+        .select('clave, tipo, titulo, descripcion, precio, moneda, categoria, portada, profesional_id, descarga_permitida, textos, actualizado_en')
+        .eq('estado', 'activo')
+        .order('id'),
+      supabase.from('profesionales_publicos').select('id, nombre'),
+    ]);
+    if (productos.error || !productos.data) return null;
+    const nombres = new Map((profesionales.data ?? []).map((p) => [p.id, p.nombre]));
+    return productos.data
+      .filter((p) => p.clave)
+      .map((p) => {
+        const t = (p.textos ?? {}) as Record<string, unknown>;
+        const esVideo = p.tipo === 'video';
+        return {
+          id: p.clave as string,
+          titulo: p.titulo,
+          descripcion: p.descripcion ?? '',
+          tipo: esVideo ? 'Video' : 'Libro',
+          categoria: p.categoria ?? '',
+          precio: p.precio / 100,
+          moneda: p.moneda ?? 'USD',
+          ventas: 0,
+          estado: 'Publicado',
+          actualizado: (p.actualizado_en ?? '').slice(0, 10),
+          entrega: {
+            streamingProtegido: esVideo, descargaPermitida: !!p.descarga_permitida, marcaDeAgua: true,
+            limiteDescargas: 0, accesoDias: 365, bloquearCaptura: !p.descarga_permitida,
+          },
+          tituloEn: texto(t.titulo_en),
+          descripcionEn: texto(t.descripcion_en),
+          duracion: texto(t.duracion),
+          autor: (p.profesional_id && nombres.get(p.profesional_id)) || undefined,
+          portada: texto(p.portada),
+        } satisfies ProductoDigitalRecord;
+      });
+  },
+);
+
+// Con el idioma del sitio: título y descripción ya traducidos (si hay inglés).
+export function useProductosPublicos(language: 'es' | 'en') {
+  const { lista, cargando } = useProductos();
+  const productos = useMemo(
+    () => lista.map((p) => (language === 'en' ? { ...p, titulo: p.tituloEn ?? p.titulo, descripcion: p.descripcionEn ?? p.descripcion } : p)),
+    [lista, language],
+  );
+  return { productos, cargando };
 }

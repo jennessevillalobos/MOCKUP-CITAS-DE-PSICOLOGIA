@@ -672,3 +672,26 @@ export function guardarServicioAdmin(id: number | null, datos: Record<string, un
 export function guardarSedeAdmin(id: number | null, datos: Record<string, unknown>) {
   return rpcAdmin<number>('admin_guardar_sede', { p_id: id, p_datos: datos });
 }
+
+// Editar un producto digital (migración 058). Precio en USD.
+export interface ProductoAdminDetalle {
+  id: number;
+  clave: string;
+  tipo: 'video' | 'libro_pdf';
+  titulo: string;
+  descripcion: string | null;
+  categoria: string | null;
+  precio: number;
+  textos: { titulo_en?: string; descripcion_en?: string; duracion?: string };
+  tieneArchivo: boolean;
+}
+
+export async function cargarProductoAdmin(id: number): Promise<Result<ProductoAdminDetalle>> {
+  const res = await rpcAdmin<ProductoAdminDetalle>('admin_producto', { p_producto_id: id });
+  if (res.error) return res;
+  return ok({ ...res.data, precio: aUsd(res.data.precio) });
+}
+
+export function guardarProductoAdmin(id: number, datos: Record<string, unknown>) {
+  return rpcAdmin<null>('admin_guardar_producto', { p_producto_id: id, p_datos: datos });
+}

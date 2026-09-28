@@ -10,6 +10,7 @@ import AvisoFlotante from '@/components/admin/ui/AvisoFlotante';
 import { useDialogo } from '@/context/DialogoContext';
 import { useAcademiaAdmin } from '@/hooks/useAcademiaAdmin';
 import { actualizarProductoAdmin, type AcademiaAdmin } from '@/lib/api/admin';
+import ProductoEditarReal from '@/components/admin/ProductoEditarReal';
 
 type ProductoBase = AcademiaAdmin['productos'][number];
 
@@ -78,6 +79,8 @@ export default function AdminDigitalProductsPage() {
   }
   const filtradosReales = productosReales.filter((p) => p.titulo.toLowerCase().includes(busqueda.trim().toLowerCase()));
   const [editando, setEditando] = useState<ProductoDigitalRecord | 'new' | null>(null);
+  // Con la base: producto real en edición (058).
+  const [editandoReal, setEditandoReal] = useState<number | null>(null);
 
   const filtrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
@@ -132,10 +135,19 @@ export default function AdminDigitalProductsPage() {
       </div>
       {errorCarga && <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-600">{errorCarga}</p>}
       <AvisoFlotante aviso={aviso} />
+      {editandoReal !== null && (
+        <ProductoEditarReal
+          lang={lang}
+          productoId={editandoReal}
+          onClose={() => setEditandoReal(null)}
+          onGuardado={() => { setEditandoReal(null); mostrarAviso('Producto guardado.'); void recargar(); }}
+          onError={(m) => mostrarAviso(m, true)}
+        />
+      )}
       {esReal && (
         <p className="rounded-2xl bg-brand-50 px-4 py-3 text-xs text-ink/60">
-          El catálogo (título, precio, portada) sale del sitio. Cada producto tiene una profesional responsable que sube el archivo en “Mis productos” y aprueba
-          las transferencias. Desde aquí puedes activarlo o desactivarlo en la tienda, reasignarlo y decidir si se puede descargar.
+          Este es el catálogo de la Tienda y de Recursos. Con “Editar” cambias título, descripción, categoría y precio. Cada producto tiene una profesional
+          responsable que sube el archivo en “Mis productos” y aprueba las transferencias; solo se puede activar cuando tiene archivo y precio.
         </p>
       )}
 
@@ -229,9 +241,17 @@ export default function AdminDigitalProductsPage() {
                 >
                   {p.estado === 'activo' ? 'Desactivar' : 'Activar'}
                 </button>
-                <Link to={`/tienda/${p.clave}`} target="_blank" className="flex-1 rounded-2xl border border-brand-100 py-2 text-center text-xs font-semibold text-brand-700 hover:bg-brand-50">
-                  Ver en la tienda
-                </Link>
+                <button
+                  onClick={() => setEditandoReal(p.id)}
+                  className="flex flex-1 items-center justify-center gap-1 rounded-2xl border border-brand-100 py-2 text-xs font-semibold text-brand-700 hover:bg-brand-50"
+                >
+                  <Pencil size={12} /> {t.edit}
+                </button>
+                {p.estado === 'activo' && (
+                  <Link to={`/tienda/${p.clave}`} target="_blank" className="flex-1 rounded-2xl border border-brand-100 py-2 text-center text-xs font-semibold text-brand-700 hover:bg-brand-50">
+                    Ver en la tienda
+                  </Link>
+                )}
               </div>
             </div>
           );

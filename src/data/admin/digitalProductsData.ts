@@ -29,6 +29,12 @@ export interface ProductoDigitalRecord {
   actualizado: string;
   archivo?: ArchivoMeta;
   entrega: EntregaSettings;
+  // Solo con la base real (058): textos en inglés, autora, portada y duración.
+  tituloEn?: string;
+  descripcionEn?: string;
+  autor?: string;
+  portada?: string;
+  duracion?: string;
 }
 
 const entregaDefault: EntregaSettings = {
