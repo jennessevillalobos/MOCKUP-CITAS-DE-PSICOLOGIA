@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, CalendarDays, Check, Clock3, MonitorSmartphone }
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
-import { SERVICIOS_PUBLICOS } from '@/data/servicesPageData';
+import { useServiciosPublicos } from '@/hooks/useCatalogoPublico';
 
 const text = {
   es: {
@@ -16,6 +16,7 @@ const text = {
     contact: '¿Tienes preguntas? Contáctanos',
     notFound: 'Servicio no encontrado',
     notFoundText: 'El servicio que buscas no está disponible.',
+    loading: 'Cargando…',
   },
   en: {
     back: 'Back to services',
@@ -27,6 +28,7 @@ const text = {
     contact: 'Have questions? Contact us',
     notFound: 'Service not found',
     notFoundText: 'The service you are looking for is not available.',
+    loading: 'Loading…',
   },
 } as const;
 
@@ -34,7 +36,18 @@ export default function ServiceDetailPage() {
   const { key } = useParams<{ key: string }>();
   const { language } = useSiteLanguage();
   const t = text[language];
-  const servicio = SERVICIOS_PUBLICOS.find((item) => item.key === key);
+  const { servicios, cargando } = useServiciosPublicos();
+  const servicio = servicios.find((item) => item.key === key);
+
+  if (!servicio && cargando) {
+    return (
+      <div className="flex min-h-screen flex-col bg-white">
+        <SiteHeader />
+        <main className="flex flex-1 items-center justify-center pt-20 text-sm text-ink/50">{t.loading}</main>
+        <SiteFooter />
+      </div>
+    );
+  }
 
   if (!servicio) {
     return (

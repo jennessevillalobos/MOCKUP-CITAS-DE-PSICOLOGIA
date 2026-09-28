@@ -1,9 +1,10 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Clock3, MonitorSmartphone, Search } from 'lucide-react';
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
-import { SERVICIOS_PUBLICOS, type CategoriaServicio } from '@/data/servicesPageData';
+import { type CategoriaServicio } from '@/data/servicesPageData';
+import { useServiciosPublicos } from '@/hooks/useCatalogoPublico';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 
 const text = {
@@ -37,53 +38,10 @@ export default function ServicesPage() {
   const { language } = useSiteLanguage();
   const t = text[language];
 
-  const [dbServices, setDbServices] = useState(SERVICIOS_PUBLICOS);
+  // Servicios activos de la base (los edita el admin, 057); sin Supabase, el catálogo.
+  const { servicios: dbServices } = useServiciosPublicos();
   const [search, setSearch] = useState('');
   const [categoria, setCategoria] = useState<'' | CategoriaServicio>('');
-
-  useEffect(() => {
-    const fetchDbData = async () => {
-      const { getSupabaseClient } = await import('@/lib/supabase/client');
-      const supabase = getSupabaseClient();
-      if (!supabase) return;
-
-      try {
-        // Fetch services and their modalities for duration and price
-        const { data: servs } = await supabase
-          .from('servicios')
-          .select('id, nombre, categoria, descripcion, slug, imagen, servicio_modalidad(duracion_minutos, precio)')
-          .eq('estado', 'activo');
-
-        if (servs && servs.length > 0) {
-          setDbServices(servs.map((s) => {
-            // Find minimum duration and price among its modalities, or use defaults
-            let minDur = 60;
-            let minPrice = 50;
-            if (s.servicio_modalidad && s.servicio_modalidad.length > 0) {
-               minDur = s.servicio_modalidad[0].duracion_minutos;
-               minPrice = s.servicio_modalidad[0].precio; // Asumiendo que está guardado en dolares o hacer / 100 si son centavos
-            }
-
-            return {
-              key: s.slug || s.id.toString(),
-              categoria: (s.categoria as CategoriaServicio) || 'individual',
-              icon: SERVICIOS_PUBLICOS[0].icon, // No tenemos iconos en BD, usamos default
-              colorClases: SERVICIOS_PUBLICOS[0].colorClases,
-              imagen: s.imagen || SERVICIOS_PUBLICOS[0].imagen,
-              titulo: { es: s.nombre, en: s.nombre },
-              descripcion: { es: s.descripcion || '', en: s.descripcion || '' },
-              duracionMin: minDur,
-              precio: minPrice,
-              modalidad: { es: 'Online / Presencial', en: 'Online / In-person' },
-            };
-          }));
-        }
-      } catch (e) {
-        console.error('Error fetching data from Supabase:', e);
-      }
-    };
-    fetchDbData();
-  }, []);
 
   const filtrados = useMemo(() => {
     const q = search.trim().toLowerCase();

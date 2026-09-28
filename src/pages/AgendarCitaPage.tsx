@@ -12,9 +12,8 @@ import { useSiteAuth } from '@/context/SiteAuthContext';
 import { useInstructorAgenda } from '@/context/InstructorAgendaContext';
 import { bookAppointment, bookAppointmentGuest, getAvailableSlots } from '@/lib/api/edgeFunctions';
 import { resolverIdsReserva } from '@/lib/api/catalog';
-import { SERVICIOS_PUBLICOS } from '@/data/servicesPageData';
 import { useProfesionalesPublicos } from '@/hooks/useProfesionalesPublicos';
-import { SEDES } from '@/data/contactPageData';
+import { useServiciosPublicos, useSedesPublicas } from '@/hooks/useCatalogoPublico';
 
 type Modalidad = 'Online' | 'Presencial';
 
@@ -216,7 +215,8 @@ export default function AgendarCitaPage() {
   // quedar preseleccionado apenas se abre el wizard.
   const servicioDesdeUrl = useMemo(() => {
     const key = searchParams.get('servicio');
-    return key && SERVICIOS_PUBLICOS.some((s) => s.key === key) ? key : null;
+    // La lista de servicios llega de la base después: aquí solo se valida la forma.
+    return key && /^[a-z0-9-]{1,80}$/.test(key) ? key : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -265,7 +265,10 @@ export default function AgendarCitaPage() {
   const [pagoAbierto, setPagoAbierto] = useState(false);
   const [pagoReportado, setPagoReportado] = useState(false);
 
-  const servicio = useMemo(() => SERVICIOS_PUBLICOS.find((s) => s.key === servicioKey) ?? null, [servicioKey]);
+  // Servicios y sedes activos de la base (el admin los edita, 057).
+  const { servicios: listaServicios } = useServiciosPublicos();
+  const { sedes: listaSedes } = useSedesPublicas();
+  const servicio = useMemo(() => listaServicios.find((s) => s.key === servicioKey) ?? null, [listaServicios, servicioKey]);
   // Con la base, las profesionales son las fichas activas (las crea el admin) y
   // se muestran solo las que ofrecen el servicio elegido.
   const { profesionales: listaProfesionales } = useProfesionalesPublicos();
@@ -274,11 +277,11 @@ export default function AgendarCitaPage() {
     [listaProfesionales, servicioKey],
   );
   const profesional = useMemo(() => listaProfesionales.find((p) => p.key === profesionalKey) ?? null, [listaProfesionales, profesionalKey]);
-  const sedeSeleccionada = useMemo(() => SEDES.find((s) => s.key === sedeKey) ?? null, [sedeKey]);
+  const sedeSeleccionada = useMemo(() => listaSedes.find((s) => s.key === sedeKey) ?? null, [listaSedes, sedeKey]);
   // Sedes donde atiende la profesional (si la ficha las indica); si no, todas.
   const sedesDisponibles = useMemo(
-    () => (profesional?.sedes?.length ? SEDES.filter((s) => profesional.sedes?.includes(s.key)) : SEDES),
-    [profesional],
+    () => (profesional?.sedes?.length ? listaSedes.filter((s) => profesional.sedes?.includes(s.key)) : listaSedes),
+    [profesional, listaSedes],
   );
 
   // La persona siempre puede elegir Online o Presencial para su cita,
@@ -542,7 +545,7 @@ export default function AgendarCitaPage() {
               <div>
                 <p className="mb-5 text-center text-sm text-ink/55">{t.paso1Sub}</p>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  {SERVICIOS_PUBLICOS.map((s) => {
+                  {listaServicios.map((s) => {
                     const Icon = s.icon;
                     const seleccionado = s.key === servicioKey;
                     return (

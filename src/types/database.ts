@@ -358,6 +358,7 @@ export interface Database {
           mapa_url: string | null;
           contacto: string | null;
           estado: string | null;
+          direccion_en: string | null;
         };
         Insert: {
           slug?: string | null;
@@ -739,6 +740,7 @@ export interface Database {
           slug: string;
           imagen: string | null;
           estado: string | null;
+          textos: Record<string, unknown>;
         };
         Insert: {
           nombre: string;

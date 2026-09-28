@@ -6,7 +6,7 @@ import {
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
-import { SERVICIOS_PUBLICOS } from '@/data/servicesPageData';
+import { useServiciosPublicos } from '@/hooks/useCatalogoPublico';
 import { useProfesionalesPublicos } from '@/hooks/useProfesionalesPublicos';
 
 // Extended mock data per professional
@@ -162,7 +162,8 @@ export default function ProfessionalProfilePage() {
   // fichas que la traen (las reseñas reales aún no tienen pantalla).
   const ejemplo = slug ? PROFILES[slug] : undefined;
   const base = ejemplo ?? DEFAULT_PROFILE;
-  const serviciosFicha = SERVICIOS_PUBLICOS.filter((s) => professional?.servicios?.includes(s.key));
+  const { servicios: catalogoServicios } = useServiciosPublicos();
+  const serviciosFicha = catalogoServicios.filter((s) => professional?.servicios?.includes(s.key));
   const profile = {
     ...base,
     bioLong: professional?.bio ?? base.bioLong,

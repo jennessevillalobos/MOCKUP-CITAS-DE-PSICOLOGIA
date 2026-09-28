@@ -625,3 +625,50 @@ export function actualizarProfesionalAdmin(id: number, datos: DatosFicha) {
 export function enlazarProfesionalAdmin(id: number, correo: string, nombre: string) {
   return rpcAdmin<null>('admin_enlazar_profesional', { p_id: id, p_correo: correo, p_nombre: nombre });
 }
+
+// Servicios y sedes (migración 057). Precio de la base en centavos; aquí en USD.
+export interface ServicioAdmin {
+  id: number;
+  slug: string;
+  nombre: string;
+  categoria: 'individual' | 'pareja' | 'infantil' | 'orientacion';
+  descripcion: string | null;
+  imagen: string | null;
+  estado: 'activo' | 'inactivo';
+  textos: { nombre_en?: string; descripcion_en?: string; modalidad_es?: string; modalidad_en?: string };
+  duracion: number | null;
+  precio: number | null;
+  profesionales: number;
+  citas: number;
+}
+
+export interface SedeAdmin {
+  id: number;
+  slug: string;
+  nombre: string;
+  ciudad: string | null;
+  direccion: string | null;
+  direccion_en: string | null;
+  mapa_url: string | null;
+  contacto: string | null;
+  estado: 'activo' | 'inactivo';
+  profesionales: number;
+  citas: number;
+}
+
+export async function cargarCatalogoAdmin(): Promise<Result<{ servicios: ServicioAdmin[]; sedes: SedeAdmin[] }>> {
+  const res = await rpcAdmin<{ servicios: ServicioAdmin[]; sedes: SedeAdmin[] }>('admin_catalogo');
+  if (res.error) return res;
+  return ok({
+    servicios: res.data.servicios.map((s) => ({ ...s, precio: s.precio === null ? null : aUsd(s.precio) })),
+    sedes: res.data.sedes,
+  });
+}
+
+export function guardarServicioAdmin(id: number | null, datos: Record<string, unknown>) {
+  return rpcAdmin<number>('admin_guardar_servicio', { p_id: id, p_datos: datos });
+}
+
+export function guardarSedeAdmin(id: number | null, datos: Record<string, unknown>) {
+  return rpcAdmin<number>('admin_guardar_sede', { p_id: id, p_datos: datos });
+}

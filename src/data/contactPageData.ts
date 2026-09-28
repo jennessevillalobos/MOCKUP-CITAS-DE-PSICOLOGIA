@@ -2,6 +2,8 @@ export interface Sede {
   key: string;
   nombre: string;
   direccion: { es: string; en: string };
+  // Enlace a Google Maps u otro mapa (solo si la sede lo tiene en la base).
+  mapaUrl?: string;
 }
 
 export const SEDES: Sede[] = [

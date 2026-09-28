@@ -8,7 +8,8 @@ import {
 import SiteHeader from '@/components/site/SiteHeader';
 import SiteFooter from '@/components/site/SiteFooter';
 import { useContacto } from '@/hooks/useContacto';
-import { SEDES, FAQ_CATEGORIAS } from '@/data/contactPageData';
+import { FAQ_CATEGORIAS } from '@/data/contactPageData';
+import { useSedesPublicas } from '@/hooks/useCatalogoPublico';
 import { useSiteLanguage } from '@/context/SiteLanguageContext';
 
 const logo = '/src/assets/logos/1_(1).png';
@@ -54,6 +55,8 @@ export default function ContactPage() {
   const { language } = useSiteLanguage();
   const contactConfig = useContacto();
   const t = text[language];
+  // Sedes activas de la base (el admin las edita, 057); sin Supabase, las del código.
+  const { sedes } = useSedesPublicas();
 
   const [form, setForm] = useState({ nombre: '', correo: '', telefono: '', asunto: '', mensaje: '', privacidad: false });
   const [touched, setTouched] = useState(false);
@@ -256,11 +259,13 @@ export default function ContactPage() {
                 <div className="absolute inset-0 bg-gradient-to-t from-ink/40 via-transparent to-transparent" />
               </div>
               <div className="space-y-4">
-                {SEDES.map((s) => (
+                {sedes.map((s) => (
                   <div key={s.key} className="rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">
                     <p className="flex items-center gap-2 font-semibold text-ink"><MapPin size={15} className="text-brand-600" />{s.nombre}</p>
                     <p className="mt-1 text-sm text-ink/60">{s.direccion[language]}</p>
-                    <a href="#" className="mt-2 inline-block text-xs font-bold text-brand-600 hover:text-brand-700">{t.directions} →</a>
+                    {s.mapaUrl && (
+                      <a href={s.mapaUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs font-bold text-brand-600 hover:text-brand-700">{t.directions} →</a>
+                    )}
                   </div>
                 ))}
                 <div className="flex items-center gap-3 rounded-2xl border border-brand-100 bg-white p-5 shadow-sm">

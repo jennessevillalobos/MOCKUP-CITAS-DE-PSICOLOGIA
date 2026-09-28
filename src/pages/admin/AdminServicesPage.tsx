@@ -5,6 +5,7 @@ import AdminLayout from '@/components/admin/AdminLayout';
 import StatusBadge from '@/components/admin/ui/StatusBadge';
 import AdminDrawer from '@/components/admin/ui/AdminDrawer';
 import ProfesionalesAdminReal from '@/components/admin/ProfesionalesAdminReal';
+import { ServiciosAdminReal, SedesAdminReal } from '@/components/admin/CatalogoAdminReal';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
 import { useAdminLanguage } from '@/context/AdminLanguageContext';
 import {
@@ -17,8 +18,8 @@ type Tab = 'serv' | 'prof' | 'lug';
 const text = {
   es: {
     title: 'Servicios, profesionales y lugares', subtitle: 'Catálogo operativo · datos de demostración',
-    subtitleReal: 'Profesionales conectadas a la base · servicios y sedes aún de demostración',
-    newBtn: { serv: 'Nuevo servicio', prof: 'Nueva profesional', lug: 'Nuevo lugar' } as Record<Tab, string>,
+    subtitleReal: 'Catálogo conectado a la base: lo que cambies aquí se ve en el sitio y en "Agendar una cita"',
+    newBtn: { serv: 'Nuevo servicio', prof: 'Nueva profesional', lug: 'Nueva sede' } as Record<Tab, string>,
     tabs: { serv: 'Servicios / Terapias', prof: 'Profesionales', lug: 'Lugares / Sedes' } as Record<Tab, string>,
     search: 'Buscar…', all: 'Todos', active: 'Activo', inactive: 'Inactivo', status: 'Estado',
     // servicios
@@ -38,7 +39,7 @@ const text = {
   },
   en: {
     title: 'Services, professionals and locations', subtitle: 'Operational catalog · demo data',
-    subtitleReal: 'Professionals connected to the database · services and locations still demo',
+    subtitleReal: 'Catalog connected to the database: changes here show on the site and in "Book an appointment"',
     newBtn: { serv: 'New service', prof: 'New professional', lug: 'New location' } as Record<Tab, string>,
     tabs: { serv: 'Services / Therapies', prof: 'Professionals', lug: 'Locations' } as Record<Tab, string>,
     search: 'Search…', all: 'All', active: 'Active', inactive: 'Inactive', status: 'Status',
@@ -73,9 +74,9 @@ export default function AdminServicesPage() {
   const t = text[lang];
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = (searchParams.get('tab') as Tab) || 'serv';
-  // Con Supabase la pestaña Profesionales usa las fichas reales (055–056).
-  const profReales = isSupabaseConfigured();
-  const [nuevaFicha, setNuevaFicha] = useState(false);
+  // Con Supabase las tres pestañas usan la base (055–057); sin ella, la demo.
+  const real = isSupabaseConfigured();
+  const [nuevoReal, setNuevoReal] = useState<Tab | null>(null);
 
   const [servicios, setServicios] = useState<ServicioRecord[]>(demoServicios);
   const [profesionales, setProfesionales] = useState<ProfesionalRecord[]>(demoProfesionales);
@@ -107,11 +108,12 @@ export default function AdminServicesPage() {
 
   function nuevoBtn() {
     setBuscar(buscar); // no-op keep filter
-    if (tab === 'serv') setServicioEdit('new');
-    if (tab === 'prof') {
-      if (profReales) setNuevaFicha(true);
-      else setProfEdit('new');
+    if (real) {
+      setNuevoReal(tab);
+      return;
     }
+    if (tab === 'serv') setServicioEdit('new');
+    if (tab === 'prof') setProfEdit('new');
     if (tab === 'lug') setLugarEdit('new');
   }
 
@@ -152,7 +154,7 @@ export default function AdminServicesPage() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-semibold text-ink sm:text-3xl">{t.title}</h1>
-          <p className="mt-1 text-sm text-ink/50">{profReales && tab === 'prof' ? t.subtitleReal : t.subtitle}</p>
+          <p className="mt-1 text-sm text-ink/50">{real ? t.subtitleReal : t.subtitle}</p>
         </div>
         <button
           onClick={nuevoBtn}
@@ -193,7 +195,11 @@ export default function AdminServicesPage() {
         </div>
       </div>
 
-      {tab === 'serv' && (
+      {tab === 'serv' && real && (
+        <ServiciosAdminReal lang={lang} buscar={buscar} abrirNuevo={nuevoReal === 'serv'} onNuevoCerrado={() => setNuevoReal(null)} />
+      )}
+
+      {tab === 'serv' && !real && (
         <section className="overflow-hidden rounded-3xl border border-brand-100 bg-white shadow-soft">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[680px] text-sm">
@@ -235,11 +241,11 @@ export default function AdminServicesPage() {
         </section>
       )}
 
-      {tab === 'prof' && profReales && (
-        <ProfesionalesAdminReal lang={lang} buscar={buscar} abrirNueva={nuevaFicha} onNuevaCerrada={() => setNuevaFicha(false)} />
+      {tab === 'prof' && real && (
+        <ProfesionalesAdminReal lang={lang} buscar={buscar} abrirNueva={nuevoReal === 'prof'} onNuevaCerrada={() => setNuevoReal(null)} />
       )}
 
-      {tab === 'prof' && !profReales && (
+      {tab === 'prof' && !real && (
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {profesionalesFiltrados.map((p) => (
             <div key={p.id} className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
@@ -281,7 +287,11 @@ export default function AdminServicesPage() {
         </section>
       )}
 
-      {tab === 'lug' && (
+      {tab === 'lug' && real && (
+        <SedesAdminReal lang={lang} buscar={buscar} abrirNueva={nuevoReal === 'lug'} onNuevaCerrada={() => setNuevoReal(null)} />
+      )}
+
+      {tab === 'lug' && !real && (
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {lugaresFiltrados.map((l) => (
             <div key={l.id} className="rounded-3xl border border-brand-100 bg-white p-5 shadow-soft">
